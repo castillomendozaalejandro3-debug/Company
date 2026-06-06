@@ -159,7 +159,8 @@ class TestAgentDelegation:
         }
         result = await orchestrator.delegate_to_agent(TaskType.VISUAL, task_details)
         assert result is not None
-        assert "status" in result
+        # VisualAgent returns success/message/data/error format
+        assert "success" in result or "status" in result
 
     @pytest.mark.asyncio
     async def test_delegate_to_security_agent(self, orchestrator):
@@ -171,7 +172,8 @@ class TestAgentDelegation:
         }
         result = await orchestrator.delegate_to_agent(TaskType.SECURITY, task_details)
         assert result is not None
-        assert "status" in result
+        # SecurityShield returns success/message/data/error format
+        assert "success" in result or "status" in result
 
     @pytest.mark.asyncio
     async def test_delegate_to_nonexistent_agent(self, orchestrator):
