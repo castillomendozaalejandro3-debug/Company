@@ -1,0 +1,46 @@
+syntax = "proto3";
+package helios;
+
+service HeliosCore {
+  rpc Ping(PingRequest) returns (PingResponse);
+  rpc GetSystemMetrics(Empty) returns (SystemMetrics);
+  rpc ValidateAction(ValidateActionRequest) returns (ValidateActionResponse);
+}
+
+message Empty {}
+
+message PingRequest {
+  string message = 1;
+}
+
+message PingResponse {
+  string message = 1;
+  int64 timestamp = 2;
+}
+
+message SystemMetrics {
+  float cpu_usage = 1;
+  uint64 total_memory = 2;
+  uint64 used_memory = 3;
+  float memory_usage_percent = 4;
+  repeated DiskInfo disks = 5;
+}
+
+message DiskInfo {
+  string name = 1;
+  uint64 total_space = 2;
+  uint64 used_space = 3;
+  float usage_percent = 4;
+}
+
+message ValidateActionRequest {
+  string action = 1;
+  string target = 2;
+  map<string, string> context = 3;
+}
+
+message ValidateActionResponse {
+  bool is_safe = 1;
+  string reason = 2;
+  float risk_score = 3;
+}

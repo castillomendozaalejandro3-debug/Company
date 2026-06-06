@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  helios-core:
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    container_name: helios-core
+    ports:
+      - "50051:50051"
+    networks:
+      - helios-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'health check' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  helios-engine:
+    build:
+      context: .
+      dockerfile: ai_engine/Dockerfile
+    container_name: helios-engine
+    ports:
+      - "8000:8000"
+    environment:
+      - RUST_CORE_HOST=helios-core
+      - RUST_CORE_PORT=50051
+      - LOG_LEVEL=INFO
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - HELIOS_MODEL=${HELIOS_MODEL:-qwen/qwen-2.5-coder-32b-instruct}
+    depends_on:
+      helios-core:
+        condition: service_healthy
+    networks:
+      - helios-net
+    volumes:
+      - ./logs:/app/logs
+      - ./ai_engine/.env:/app/ai_engine/.env:ro
+    restart: unless-stopped
+
+  helios-dashboard:
+    build:
+      context: ./dashboard_ui
+      dockerfile: Dockerfile
+    container_name: helios-dashboard
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+      - NODE_ENV=production
+    depends_on:
+      - helios-engine
+    networks:
+      - helios-net
+    restart: unless-stopped
+
+networks:
+  helios-net:
+    driver: bridge
