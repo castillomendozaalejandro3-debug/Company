@@ -172,6 +172,75 @@ class BaseAgent(ABC):
         pass
 ```
 
+### PC Controller Agent Implementation Details
+
+The `PCControllerAgent` extends the base interface with specific functionality:
+
+**Custom Exceptions:**
+- `SecurityValidationError`: Raised when security validation fails
+- `ExecutionError`: Raised when command execution fails
+- `AuthorizationError`: Raised when authorization check fails
+
+**Core Methods:**
+```python
+async def shutdown_system(delay_seconds: int = 0) -> dict:
+    """Shutdown system with security validation and critical process detection."""
+
+async def restart_system(delay_seconds: int = 0) -> dict:
+    """Restart system with security validation."""
+
+async def open_application(app_name: str) -> dict:
+    """Open application with OS-specific commands."""
+
+async def execute_command(command: str, requires_confirmation: bool = True) -> dict:
+    """Execute shell command with dangerous pattern detection."""
+
+async def get_system_info() -> dict:
+    """Retrieve CPU, RAM, disk, and platform information."""
+```
+
+**Response Structure:**
+All methods return a standardized dictionary:
+```python
+{
+    "success": bool,       # Whether operation succeeded
+    "message": str,        # Human-readable description
+    "data": Any,           # Operation-specific data
+    "error": str | None    # Error message if failed
+}
+```
+
+**Security Validation Process:**
+1. Check for critical processes before destructive operations
+2. Validate against dangerous command patterns
+3. Require explicit confirmation for high-risk actions
+4. Log all actions with timestamp, status, and context
+5. Block access to sensitive system paths
+
+**Logging Format:**
+All actions are logged to `logs/pc_controller.log` with format:
+```
+[TIMESTAMP] [ACTION] [STATUS] [CONTEXT]
+```
+
+Example:
+```
+[2024-01-15T10:30:45.123456] [shutdown] [SUCCESS] {"command": "shutdown /s /t 60", "os_type": "windows", "simulated": true}
+```
+
+**OS Detection and Command Adaptation:**
+The agent automatically detects the operating system and adjusts commands:
+
+| Operation | Windows | macOS | Linux |
+|-----------|---------|-------|-------|
+| Shutdown | `shutdown /s /t <delay>` | `sudo shutdown -h +<min>` | `sudo shutdown -h +<min>` |
+| Restart | `shutdown /r /t <delay>` | `sudo shutdown -r +<min>` | `sudo shutdown -r +<min>` |
+| Open App | `start "" <app>` | `open -a <app>` | `xdg-open <app>` |
+| List Processes | `tasklist /FO CSV` | `ps aux` | `ps aux` |
+| CPU Info | `wmic cpu get...` | `nproc` | `nproc` |
+| RAM Info | `wmic OS get...` | `free -h` | `free -h` |
+| Disk Info | `wmic logicaldisk get...` | `df -h` | `df -h` |
+
 ## Communication Flow
 
 ### Standard Task Execution

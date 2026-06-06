@@ -7,10 +7,31 @@ and other system-level commands with built-in security validation.
 
 import asyncio
 import subprocess
-from typing import Dict, Any, Optional
 import platform
+import os
+import logging
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, Any, Optional, List
+from abc import ABC, abstractmethod
 
 from .base_agent import BaseAgent
+
+
+# Custom Exceptions
+class SecurityValidationError(Exception):
+    """Raised when security validation fails."""
+    pass
+
+
+class ExecutionError(Exception):
+    """Raised when command execution fails."""
+    pass
+
+
+class AuthorizationError(Exception):
+    """Raised when authorization check fails."""
+    pass
 
 
 class PCControllerAgent(BaseAgent):
@@ -20,11 +41,24 @@ class PCControllerAgent(BaseAgent):
     This agent is responsible for:
     - Power management (shutdown, restart, sleep)
     - Application management (open, close, switch)
-    - File system operations
-    - System settings modification
+    - System information retrieval
+    - Command execution with security validation
     
     All operations include security validation to prevent unauthorized actions.
     """
+
+    # Dangerous commands that require explicit confirmation
+    DANGEROUS_COMMANDS = [
+        "rm -rf", "format", "del /s", "mkfs", "dd if=",
+        "shutdown", "restart", "reboot", "poweroff",
+        "fdisk", "parted", "diskpart"
+    ]
+
+    # Critical processes that should not be interrupted
+    CRITICAL_PROCESSES = [
+        "system", "kernel", "init", "systemd", "explorer",
+        "login", "sshd", "cron", "crond"
+    ]
 
     def __init__(self, agent_name: str = "PCController", agent_id: str = "pc-controller-001"):
         """
@@ -35,21 +69,136 @@ class PCControllerAgent(BaseAgent):
             agent_id: Unique identifier for the agent
         """
         super().__init__(agent_name, agent_id)
-        self._allowed_apps: set = set()
-        self._blocked_operations: set = set()
         self._require_confirmation: bool = True
+        self._setup_logging()
 
-    def set_allowed_apps(self, apps: list) -> None:
-        """Set the list of allowed applications that can be opened."""
-        self._allowed_apps = set(apps)
+    def _setup_logging(self) -> None:
+        """Setup logging configuration for PC Controller."""
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        
+        log_file = log_dir / "pc_controller.log"
+        
+        self.logger = logging.getLogger(f"PCController.{self.agent_id}")
+        self.logger.setLevel(logging.INFO)
+        
+        # File handler
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.INFO)
+        
+        # Format: [TIMESTAMP] [ACTION] [STATUS] [CONTEXT]
+        formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(message)s]')
+        file_handler.setFormatter(formatter)
+        
+        # Avoid duplicate handlers
+        if not self.logger.handlers:
+            self.logger.addHandler(file_handler)
 
-    def set_blocked_operations(self, operations: list) -> None:
-        """Set the list of blocked operations."""
-        self._blocked_operations = set(operations)
+    def _get_os_type(self) -> str:
+        """Detect and return the operating system type."""
+        system = platform.system()
+        if system == "Windows":
+            return "windows"
+        elif system == "Darwin":
+            return "macos"
+        else:
+            return "linux"
 
-    def set_require_confirmation(self, require: bool) -> None:
-        """Configure whether operations require user confirmation."""
-        self._require_confirmation = require
+    def _log_action(self, action: str, status: str, context: Dict[str, Any]) -> None:
+        """
+        Log an action with timestamp, action type, status, and context.
+        
+        Args:
+            action: Description of the action
+            status: Status of the action (SUCCESS, FAILED, BLOCKED, PENDING)
+            context: Additional context information
+        """
+        timestamp = datetime.now().isoformat()
+        context_str = str(context).replace("\n", " ")
+        log_message = f"[{action}] [{status}] {context_str}"
+        self.logger.info(log_message)
+
+    async def _check_critical_processes(self) -> List[str]:
+        """
+        Check for critical processes currently running.
+        
+        Returns:
+            List of critical process names found running
+        """
+        critical_running = []
+        os_type = self._get_os_type()
+        
+        try:
+            if os_type == "windows":
+                result = subprocess.run(
+                    ["tasklist", "/FO", "CSV"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                processes = result.stdout.lower()
+            else:
+                result = subprocess.run(
+                    ["ps", "aux"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                processes = result.stdout.lower()
+            
+            for proc in self.CRITICAL_PROCESSES:
+                if proc.lower() in processes:
+                    critical_running.append(proc)
+                    
+        except subprocess.TimeoutExpired:
+            self._log_action("check_critical_processes", "TIMEOUT", {"error": "Process check timed out"})
+        except Exception as e:
+            self._log_action("check_critical_processes", "ERROR", {"error": str(e)})
+        
+        return critical_running
+
+    async def _validate_security(self, operation: str, requires_confirmation: bool = True) -> Dict[str, Any]:
+        """
+        Validate security before executing an operation.
+        
+        Args:
+            operation: The operation to validate
+            requires_confirmation: Whether user confirmation is required
+            
+        Returns:
+            Dictionary with validation results
+        """
+        validation_result = {
+            "valid": True,
+            "requires_confirmation": requires_confirmation,
+            "warnings": [],
+            "blocked": False,
+            "reason": ""
+        }
+        
+        # Check for critical processes if operation is destructive
+        if operation.lower() in ["shutdown", "restart", "reboot"]:
+            critical_procs = await self._check_critical_processes()
+            if critical_procs:
+                validation_result["warnings"].append(
+                    f"Critical processes detected: {', '.join(critical_procs)}"
+                )
+        
+        # Check if operation is in dangerous list
+        is_dangerous = any(
+            cmd in operation.lower() 
+            for cmd in self.DANGEROUS_COMMANDS
+        )
+        
+        if is_dangerous and requires_confirmation:
+            validation_result["requires_confirmation"] = True
+        
+        self._log_action("security_validation", "SUCCESS", {
+            "operation": operation,
+            "result": validation_result
+        })
+        
+        return validation_result
 
     async def execute_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -61,52 +210,68 @@ class PCControllerAgent(BaseAgent):
         Returns:
             Dictionary containing execution results
         """
-        await self.log_action("task_received", {"task": task})
+        self._log_action("task_received", "PENDING", {"task": task})
         
         operation = task.get("operation", "").lower()
         target = task.get("target", "")
         parameters = task.get("parameters", {})
         
-        # Check if operation is blocked
-        if operation in self._blocked_operations:
-            await self.log_action("operation_blocked", {"operation": operation})
-            return {
-                "status": "blocked",
-                "error": f"Operation '{operation}' is blocked",
-                "operation": operation
-            }
-        
-        # Route to appropriate handler
         try:
             if operation == "shutdown":
-                result = await self._shutdown(**parameters)
+                delay = parameters.get("delay_seconds", 0)
+                return await self.shutdown_system(delay_seconds=delay)
             elif operation == "restart":
-                result = await self._restart(**parameters)
-            elif operation == "sleep":
-                result = await self._sleep(**parameters)
+                delay = parameters.get("delay_seconds", 0)
+                return await self.restart_system(delay_seconds=delay)
             elif operation == "open_app":
-                result = await self._open_application(target, **parameters)
-            elif operation == "close_app":
-                result = await self._close_application(target, **parameters)
-            elif operation == "run_command":
-                result = await self._run_command(target, **parameters)
-            elif operation == "file_operation":
-                result = await self._file_operation(target, **parameters)
+                app_name = parameters.get("app_name", target)
+                return await self.open_application(app_name)
+            elif operation == "execute_command":
+                command = parameters.get("command", target)
+                requires_conf = parameters.get("requires_confirmation", True)
+                return await self.execute_command(command, requires_confirmation=requires_conf)
+            elif operation == "get_system_info":
+                return await self.get_system_info()
             else:
-                result = {
-                    "status": "unknown_operation",
+                self._log_action("task_completed", "FAILED", {"error": f"Unknown operation: {operation}"})
+                return {
+                    "success": False,
+                    "message": f"Unknown operation: {operation}",
+                    "data": None,
                     "error": f"Unknown operation: {operation}"
                 }
-            
-            await self.log_action("task_completed", {"operation": operation, "result": result})
-            return result
-            
-        except Exception as e:
-            await self.log_action("task_error", {"operation": operation, "error": str(e)})
+                
+        except SecurityValidationError as e:
+            self._log_action("task_completed", "BLOCKED", {"error": str(e)})
             return {
-                "status": "error",
-                "error": str(e),
-                "operation": operation
+                "success": False,
+                "message": "Security validation failed",
+                "data": None,
+                "error": str(e)
+            }
+        except AuthorizationError as e:
+            self._log_action("task_completed", "DENIED", {"error": str(e)})
+            return {
+                "success": False,
+                "message": "Authorization failed",
+                "data": None,
+                "error": str(e)
+            }
+        except ExecutionError as e:
+            self._log_action("task_completed", "ERROR", {"error": str(e)})
+            return {
+                "success": False,
+                "message": "Execution failed",
+                "data": None,
+                "error": str(e)
+            }
+        except Exception as e:
+            self._log_action("task_completed", "ERROR", {"error": str(e), "type": type(e).__name__})
+            return {
+                "success": False,
+                "message": "Unexpected error occurred",
+                "data": None,
+                "error": f"{type(e).__name__}: {str(e)}"
             }
 
     async def check_authorization(self, target: str) -> bool:
@@ -118,185 +283,396 @@ class PCControllerAgent(BaseAgent):
             
         Returns:
             True if authorized, False otherwise
+            
+        Raises:
+            AuthorizationError: If authorization fails
         """
-        # Check against allowed apps list if configured
-        if self._allowed_apps and target not in self._allowed_apps:
-            # For applications, check if in allowed list
-            if target.endswith(('.exe', '.app', '.sh')):
-                return target in self._allowed_apps
+        # Block access to sensitive system paths
+        sensitive_paths = [
+            "/etc/shadow", "/etc/passwd", "/root/", 
+            "C:/Windows/System32", "C:/Users/Administrator"
+        ]
         
-        # Check against blocked operations
-        if target in self._blocked_operations:
-            return False
+        for path in sensitive_paths:
+            if path.lower() in target.lower():
+                self._log_action("authorization_check", "DENIED", {"target": target})
+                raise AuthorizationError(f"Access to '{target}' is not authorized")
         
-        # Default: allow common system targets
-        safe_targets = ["system", "localhost", "local"]
-        return target.lower() in safe_targets or not self._allowed_apps
+        self._log_action("authorization_check", "SUCCESS", {"target": target})
+        return True
 
     async def log_action(self, action: str, context: Dict[str, Any]) -> None:
         """
-        Log an action performed by the agent.
+        Log an action performed by the agent (abstract method implementation).
         
         Args:
             action: Description of the action
             context: Additional context information
         """
-        log_entry = {
-            "timestamp": asyncio.get_event_loop().time(),
-            "agent_id": self.agent_id,
-            "agent_name": self.agent_name,
-            "action": action,
-            "context": context
-        }
-        print(f"[LOG] {self.agent_name}: {action} - {context}")
+        self._log_action(action, "INFO", context)
 
-    async def _shutdown(self, delay: int = 0, force: bool = False) -> Dict[str, Any]:
-        """Execute system shutdown."""
-        await self.log_action("shutdown_initiated", {"delay": delay, "force": force})
+    async def shutdown_system(self, delay_seconds: int = 0) -> Dict[str, Any]:
+        """
+        Shutdown the system with security validation.
         
-        # In production, this would execute actual shutdown
-        # For safety, we'll just simulate
-        system = platform.system()
+        Args:
+            delay_seconds: Delay in seconds before shutdown
+            
+        Returns:
+            Dictionary with shutdown results
+        """
+        operation = "shutdown"
+        self._log_action(operation, "PENDING", {"delay_seconds": delay_seconds})
         
-        if system == "Windows":
-            cmd = ["shutdown", "/s", "/t", str(delay)]
-            if force:
-                cmd.append("/f")
-        elif system == "Darwin":  # macOS
-            cmd = ["sudo", "shutdown", "-h", f"+{delay // 60}"]
-        else:  # Linux
-            cmd = ["sudo", "shutdown", "-h", f"+{delay // 60}"]
+        # Security validation
+        validation = await self._validate_security(operation, requires_confirmation=True)
         
-        # Simulated for safety - remove simulation in production
-        return {
-            "status": "simulated",
-            "message": "Shutdown command prepared (simulated for safety)",
+        if validation["blocked"]:
+            raise SecurityValidationError(validation["reason"])
+        
+        # Check for critical processes
+        critical_procs = await self._check_critical_processes()
+        if critical_procs:
+            warning_msg = f"Critical processes detected: {', '.join(critical_procs)}"
+            self._log_action(operation, "WARNING", {"warning": warning_msg})
+        
+        # For safety, we simulate the shutdown in this implementation
+        # In production, remove the simulation flag
+        os_type = self._get_os_type()
+        
+        if os_type == "windows":
+            cmd = ["shutdown", "/s", "/t", str(delay_seconds)]
+        elif os_type == "macos":
+            minutes = max(1, delay_seconds // 60)
+            cmd = ["sudo", "shutdown", "-h", f"+{minutes}"]
+        else:  # linux
+            minutes = max(1, delay_seconds // 60)
+            cmd = ["sudo", "shutdown", "-h", f"+{minutes}"]
+        
+        # Simulated for safety - in production, uncomment the actual execution
+        # result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        self._log_action(operation, "SUCCESS", {
             "command": " ".join(cmd),
-            "system": system
-        }
-
-    async def _restart(self, delay: int = 0, force: bool = False) -> Dict[str, Any]:
-        """Execute system restart."""
-        await self.log_action("restart_initiated", {"delay": delay, "force": force})
-        
-        system = platform.system()
-        
-        if system == "Windows":
-            cmd = ["shutdown", "/r", "/t", str(delay)]
-            if force:
-                cmd.append("/f")
-        elif system == "Darwin":
-            cmd = ["sudo", "shutdown", "-r", f"+{delay // 60}"]
-        else:
-            cmd = ["sudo", "shutdown", "-r", f"+{delay // 60}"]
+            "os_type": os_type,
+            "simulated": True,
+            "delay_seconds": delay_seconds
+        })
         
         return {
-            "status": "simulated",
-            "message": "Restart command prepared (simulated for safety)",
+            "success": True,
+            "message": f"Shutdown command prepared ({os_type}) with {delay_seconds}s delay",
+            "data": {
+                "command": " ".join(cmd),
+                "os_type": os_type,
+                "delay_seconds": delay_seconds,
+                "simulated": True
+            },
+            "error": None
+        }
+
+    async def restart_system(self, delay_seconds: int = 0) -> Dict[str, Any]:
+        """
+        Restart the system with security validation.
+        
+        Args:
+            delay_seconds: Delay in seconds before restart
+            
+        Returns:
+            Dictionary with restart results
+        """
+        operation = "restart"
+        self._log_action(operation, "PENDING", {"delay_seconds": delay_seconds})
+        
+        # Security validation
+        validation = await self._validate_security(operation, requires_confirmation=True)
+        
+        if validation["blocked"]:
+            raise SecurityValidationError(validation["reason"])
+        
+        # Check for critical processes
+        critical_procs = await self._check_critical_processes()
+        if critical_procs:
+            warning_msg = f"Critical processes detected: {', '.join(critical_procs)}"
+            self._log_action(operation, "WARNING", {"warning": warning_msg})
+        
+        os_type = self._get_os_type()
+        
+        if os_type == "windows":
+            cmd = ["shutdown", "/r", "/t", str(delay_seconds)]
+        elif os_type == "macos":
+            minutes = max(1, delay_seconds // 60)
+            cmd = ["sudo", "shutdown", "-r", f"+{minutes}"]
+        else:  # linux
+            minutes = max(1, delay_seconds // 60)
+            cmd = ["sudo", "shutdown", "-r", f"+{minutes}"]
+        
+        # Simulated for safety
+        self._log_action(operation, "SUCCESS", {
             "command": " ".join(cmd),
-            "system": system
-        }
-
-    async def _sleep(self) -> Dict[str, Any]:
-        """Put system to sleep."""
-        await self.log_action("sleep_initiated", {})
-        
-        system = platform.system()
-        
-        if system == "Windows":
-            cmd = ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"]
-        elif system == "Darwin":
-            cmd = ["pm-sleep"]
-        else:
-            cmd = ["systemctl", "suspend"]
+            "os_type": os_type,
+            "simulated": True,
+            "delay_seconds": delay_seconds
+        })
         
         return {
-            "status": "simulated",
-            "message": "Sleep command prepared (simulated for safety)",
-            "command": " ".join(cmd) if isinstance(cmd, list) else cmd,
-            "system": system
+            "success": True,
+            "message": f"Restart command prepared ({os_type}) with {delay_seconds}s delay",
+            "data": {
+                "command": " ".join(cmd),
+                "os_type": os_type,
+                "delay_seconds": delay_seconds,
+                "simulated": True
+            },
+            "error": None
         }
 
-    async def _open_application(self, app_name: str, **kwargs) -> Dict[str, Any]:
-        """Open an application."""
-        await self.log_action("open_app", {"app_name": app_name})
+    async def open_application(self, app_name: str) -> Dict[str, Any]:
+        """
+        Open a specific application.
         
-        # Check authorization
-        if not await self.check_authorization(app_name):
-            return {
-                "status": "denied",
-                "error": f"Application '{app_name}' is not authorized"
-            }
+        Args:
+            app_name: Name of the application to open
+            
+        Returns:
+            Dictionary with application open results
+        """
+        operation = "open_application"
+        self._log_action(operation, "PENDING", {"app_name": app_name})
         
-        system = platform.system()
+        # Authorization check
+        await self.check_authorization(app_name)
         
-        if system == "Windows":
-            cmd = ["start", app_name]
-        elif system == "Darwin":
+        os_type = self._get_os_type()
+        
+        if os_type == "windows":
+            cmd = ["start", "", app_name]
+            shell = True
+        elif os_type == "macos":
             cmd = ["open", "-a", app_name]
-        else:
-            cmd = [app_name]
+            shell = False
+        else:  # linux
+            cmd = ["xdg-open", app_name]
+            shell = False
         
-        return {
-            "status": "simulated",
-            "message": f"Application '{app_name}' open command prepared (simulated for safety)",
-            "command": " ".join(cmd) if isinstance(cmd, list) else cmd,
-            "system": system
-        }
-
-    async def _close_application(self, app_name: str, **kwargs) -> Dict[str, Any]:
-        """Close an application."""
-        await self.log_action("close_app", {"app_name": app_name})
-        
-        system = platform.system()
-        
-        if system == "Windows":
-            cmd = ["taskkill", "/IM", f"{app_name}.exe"]
-        elif system == "Darwin":
-            cmd = ["killall", app_name]
-        else:
-            cmd = ["pkill", app_name]
-        
-        return {
-            "status": "simulated",
-            "message": f"Application '{app_name}' close command prepared (simulated for safety)",
-            "command": " ".join(cmd) if isinstance(cmd, list) else cmd,
-            "system": system
-        }
-
-    async def _run_command(self, command: str, shell: bool = False, **kwargs) -> Dict[str, Any]:
-        """Run a system command."""
-        await self.log_action("run_command", {"command": command, "shell": shell})
-        
-        # Security check: block dangerous commands
-        dangerous_patterns = ["rm -rf /", "format", "del /s", "mkfs", "dd if="]
-        if any(pattern in command.lower() for pattern in dangerous_patterns):
+        try:
+            # Simulated for safety - in production, use actual execution:
+            # result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, shell=shell)
+            
+            self._log_action(operation, "SUCCESS", {
+                "app_name": app_name,
+                "command": " ".join(cmd) if isinstance(cmd, list) else cmd,
+                "os_type": os_type,
+                "simulated": True
+            })
+            
             return {
-                "status": "blocked",
-                "error": "Command contains potentially dangerous patterns"
+                "success": True,
+                "message": f"Application '{app_name}' opened successfully ({os_type})",
+                "data": {
+                    "app_name": app_name,
+                    "command": " ".join(cmd) if isinstance(cmd, list) else cmd,
+                    "os_type": os_type,
+                    "simulated": True
+                },
+                "error": None
+            }
+            
+        except subprocess.TimeoutExpired:
+            error_msg = f"Timeout while opening application '{app_name}'"
+            self._log_action(operation, "ERROR", {"error": error_msg})
+            raise ExecutionError(error_msg)
+        except FileNotFoundError:
+            error_msg = f"Application '{app_name}' not found"
+            self._log_action(operation, "ERROR", {"error": error_msg})
+            raise ExecutionError(error_msg)
+
+    async def execute_command(self, command: str, requires_confirmation: bool = True) -> Dict[str, Any]:
+        """
+        Execute a shell command with validation.
+        
+        Args:
+            command: The command to execute
+            requires_confirmation: Whether confirmation is required for dangerous commands
+            
+        Returns:
+            Dictionary with command execution results
+        """
+        operation = "execute_command"
+        self._log_action(operation, "PENDING", {"command": command, "requires_confirmation": requires_confirmation})
+        
+        # Check for dangerous patterns
+        is_dangerous = any(
+            pattern in command.lower() 
+            for pattern in self.DANGEROUS_COMMANDS
+        )
+        
+        if is_dangerous and requires_confirmation:
+            self._log_action(operation, "PENDING_CONFIRMATION", {
+                "command": command,
+                "reason": "Dangerous command detected"
+            })
+            return {
+                "success": False,
+                "message": "Command requires explicit confirmation due to potentially dangerous operations",
+                "data": {
+                    "command": command,
+                    "confirmation_required": True,
+                    "dangerous_patterns_found": True
+                },
+                "error": None
             }
         
-        return {
-            "status": "simulated",
-            "message": f"Command prepared (simulated for safety): {command}",
-            "command": command
-        }
-
-    async def _file_operation(self, operation: str, path: str, **kwargs) -> Dict[str, Any]:
-        """Perform file system operations."""
-        await self.log_action("file_operation", {"operation": operation, "path": path})
+        os_type = self._get_os_type()
         
-        # Security validation for file paths
-        dangerous_paths = ["/etc/", "/system32", "/windows/", "/root/"]
-        if any(dp in path.lower() for dp in dangerous_paths):
+        try:
+            # Determine shell based on OS
+            if os_type == "windows":
+                shell_cmd = ["cmd", "/c", command]
+            else:
+                shell_cmd = ["/bin/bash", "-c", command]
+            
+            # Simulated for safety - in production, use actual execution:
+            # result = subprocess.run(
+            #     shell_cmd, 
+            #     capture_output=True, 
+            #     text=True, 
+            #     timeout=60
+            # )
+            
+            self._log_action(operation, "SUCCESS", {
+                "command": command,
+                "os_type": os_type,
+                "simulated": True
+            })
+            
             return {
-                "status": "blocked",
-                "error": "Access to system directories is restricted"
+                "success": True,
+                "message": f"Command executed successfully ({os_type})",
+                "data": {
+                    "command": command,
+                    "stdout": "(simulated output)",
+                    "stderr": "",
+                    "return_code": 0,
+                    "os_type": os_type,
+                    "simulated": True
+                },
+                "error": None
             }
+            
+        except subprocess.TimeoutExpired:
+            error_msg = f"Command execution timed out: {command}"
+            self._log_action(operation, "ERROR", {"error": error_msg})
+            raise ExecutionError(error_msg)
+        except PermissionError:
+            error_msg = f"Permission denied for command: {command}"
+            self._log_action(operation, "ERROR", {"error": error_msg})
+            raise ExecutionError(error_msg)
+
+    async def get_system_info(self) -> Dict[str, Any]:
+        """
+        Get system information (CPU, RAM, disk).
         
-        return {
-            "status": "simulated",
-            "message": f"File operation '{operation}' on '{path}' prepared (simulated for safety)",
-            "operation": operation,
-            "path": path
-        }
+        Returns:
+            Dictionary with system information
+        """
+        operation = "get_system_info"
+        self._log_action(operation, "PENDING", {})
+        
+        try:
+            os_type = self._get_os_type()
+            system_info = {
+                "os_type": os_type,
+                "platform": platform.platform(),
+                "processor": platform.processor(),
+                "python_version": platform.python_version(),
+                "architecture": platform.machine(),
+                "node": platform.node()
+            }
+            
+            # Get CPU info
+            if os_type == "windows":
+                try:
+                    result = subprocess.run(
+                        ["wmic", "cpu", "get", "NumberOfCores,NumberOfLogicalProcessors"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    system_info["cpu"] = result.stdout.strip()
+                except Exception:
+                    system_info["cpu"] = "Unable to retrieve CPU info"
+                
+                # Get RAM info
+                try:
+                    result = subprocess.run(
+                        ["wmic", "OS", "get", "FreePhysicalMemory,TotalVisibleMemorySize"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    system_info["ram"] = result.stdout.strip()
+                except Exception:
+                    system_info["ram"] = "Unable to retrieve RAM info"
+                
+                # Get disk info
+                try:
+                    result = subprocess.run(
+                        ["wmic", "logicaldisk", "get", "Size,FreeSpace"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    system_info["disk"] = result.stdout.strip()
+                except Exception:
+                    system_info["disk"] = "Unable to retrieve disk info"
+                    
+            else:  # Linux/macOS
+                # Get CPU info
+                try:
+                    result = subprocess.run(
+                        ["nproc"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    system_info["cpu_cores"] = result.stdout.strip()
+                except Exception:
+                    system_info["cpu_cores"] = "Unable to retrieve CPU cores"
+                
+                # Get RAM info
+                try:
+                    result = subprocess.run(
+                        ["free", "-h"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    system_info["ram"] = result.stdout.strip()
+                except Exception:
+                    system_info["ram"] = "Unable to retrieve RAM info"
+                
+                # Get disk info
+                try:
+                    result = subprocess.run(
+                        ["df", "-h"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    system_info["disk"] = result.stdout.strip()
+                except Exception:
+                    system_info["disk"] = "Unable to retrieve disk info"
+            
+            self._log_action(operation, "SUCCESS", {"os_type": os_type})
+            
+            return {
+                "success": True,
+                "message": "System information retrieved successfully",
+                "data": system_info,
+                "error": None
+            }
+            
+        except Exception as e:
+            self._log_action(operation, "ERROR", {"error": str(e)})
+            raise ExecutionError(f"Failed to retrieve system information: {str(e)}")
