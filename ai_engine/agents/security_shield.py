@@ -6,10 +6,53 @@ and active protection against AI-powered attacks.
 """
 
 import asyncio
+import hashlib
+import json
+import os
+import re
+import platform
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
 from enum import Enum
 
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+
+try:
+    import regex
+    REGEX_AVAILABLE = True
+except ImportError:
+    REGEX_AVAILABLE = False
+
 from .base_agent import BaseAgent
+
+
+# Custom Exceptions
+class ThreatDetectedError(Exception):
+    """Exception raised when a threat is detected."""
+    def __init__(self, threat_type: str, severity: str, details: Dict[str, Any]):
+        self.threat_type = threat_type
+        self.severity = severity
+        self.details = details
+        super().__init__(f"Threat detected: {threat_type} ({severity}) - {details}")
+
+
+class RollbackError(Exception):
+    """Exception raised when a rollback operation fails."""
+    def __init__(self, message: str, snapshot_id: Optional[str] = None):
+        self.snapshot_id = snapshot_id
+        super().__init__(f"Rollback error: {message}")
+
+
+class IsolationError(Exception):
+    """Exception raised when network isolation fails."""
+    def __init__(self, message: str, target: str):
+        self.target = target
+        super().__init__(f"Isolation error: {message}")
 
 
 class ThreatLevel(Enum):
@@ -38,16 +81,52 @@ class SecurityShieldAgent(BaseAgent):
     Security Shield Agent for proactive threat protection.
     
     This agent is responsible for:
-    - Native antivirus scanning with behavioral analysis
+    - Native antivirus scanning with behavioral analysis (psutil)
     - Zero-day attack neutralization
-    - Instant system rollback capabilities
-    - AI prompt injection filtering
+    - Instant system rollback capabilities (prototype)
+    - AI prompt injection filtering (regex-based)
     - Smart network isolation
     - Local identity auditing
     - Real-time threat monitoring
     
     All security actions are logged for compliance and audit purposes.
     """
+
+    # Prompt injection patterns (real implementation)
+    PROMPT_INJECTION_PATTERNS = [
+        r"(?i)ignore\s+(all\s+)?(previous|prior)\s+(instructions|rules|guidelines)",
+        r"(?i)bypass\s+(all\s+)?security",
+        r"(?i)(system|admin)\s+(override|mode)",
+        r"(?i)execute\s+(this|the)\s+(command|script|code)",
+        r"(?i)jailbreak",
+        r"(?i)dan\s*=",
+        r"(?i)developer\s+mode",
+        r"(?i)roleplay\s+as\s+(unrestricted|uncensored|without limits)",
+        r"(?i)print\s+your\s+(instructions|system\s+prompt|initialization)",
+        r"(?i)output\s+your\s+(initialization|training\s+data|config)",
+        r"<script[^>]*>.*?</script>",
+        r"javascript:",
+        r"(?i)powershell\s+-enc",
+        r"(?i)-e\s+[A-Za-z0-9+/=]{50,}",  # Base64 encoded commands
+        r"(?i)cmd\.exe\s+/c",
+        r"(?i)/bin/(ba)?sh\s+-[ic]",
+        r"(?i)do\s+not\s+follow\s+(any\s+)?(rules|restrictions)",
+        r"(?i)act\s+as\s+(an?\s+)?(unrestricted|unfiltered|uncensored)",
+    ]
+
+    # Credential patterns for audit (real implementation)
+    CREDENTIAL_PATTERNS = [
+        r"(?i)(password|passwd|pwd)\s*[=:]\s*['\"]?([^'\"\s]+)['\"]?",
+        r"(?i)(api[_-]?key|apikey)\s*[=:]\s*['\"]?([^'\"\s]+)['\"]?",
+        r"(?i)(secret[_-]?key|secret)\s*[=:]\s*['\"]?([^'\"\s]+)['\"]?",
+        r"(?i)(access[_-]?token|auth[_-]?token)\s*[=:]\s*['\"]?([^'\"\s]+)['\"]?",
+        r"(?i)(private[_-]?key)\s*[=:]\s*['\"]?([^'\"\s]+)['\"]?",
+        r"(?i)(db[_-]?password|database[_-]?password)\s*[=:]\s*['\"]?([^'\"\s]+)['\"]?",
+        r"AWS[A-Z0-9]{10,}",
+        r"AKIA[0-9A-Z]{16}",
+        r"ghp_[a-zA-Z0-9]{36}",  # GitHub personal access token
+        r"xox[baprs]-[0-9a-zA-Z]{10,}",  # Slack tokens
+    ]
 
     def __init__(self, agent_name: str = "SecurityShield", agent_id: str = "security-001"):
         """
@@ -65,6 +144,17 @@ class SecurityShieldAgent(BaseAgent):
         self._system_snapshots: List[Dict[str, Any]] = []
         self._current_threat_level: ThreatLevel = ThreatLevel.NONE
         self._real_time_monitoring: bool = True
+        
+        # Setup paths
+        self._snapshots_dir = Path(__file__).parent.parent.parent / "snapshots"
+        self._snapshots_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Compile regex patterns for performance
+        self._injection_regex = [regex.compile(p) for p in self.PROMPT_INJECTION_PATTERNS]
+        self._credential_regex = [regex.compile(p) for p in self.CREDENTIAL_PATTERNS]
+        
+        # OS detection
+        self._os_type = platform.system().lower()
 
     def add_trusted_process(self, process_name: str) -> None:
         """Add a process to the trusted list."""
@@ -90,7 +180,8 @@ class SecurityShieldAgent(BaseAgent):
             task: Dictionary containing task parameters
             
         Returns:
-            Dictionary containing execution results
+            Dictionary containing execution results with structure:
+            {"success": bool, "message": str, "data": any, "error": str|null}
         """
         await self.log_action("task_received", {"task": task})
         
@@ -117,21 +208,46 @@ class SecurityShieldAgent(BaseAgent):
                 result = await self._create_system_snapshot(**parameters)
             elif operation == "analyze_behavior":
                 result = await self._analyze_behavior(target, **parameters)
+            # Additional operations for test compatibility
+            elif operation == "scan_content":
+                result = await self.scan_content_for_injection(target, **parameters)
+            elif operation == "analyze_process":
+                result = await self.analyze_process_behavior(parameters.get("process_id", os.getpid()))
             else:
                 result = {
-                    "status": "unknown_operation",
-                    "error": f"Unknown security operation: {operation}"
+                    "success": False,
+                    "message": f"Unknown security operation: {operation}",
+                    "data": None,
+                    "error": "UNKNOWN_OPERATION"
                 }
             
-            await self.log_action("task_completed", {"operation": operation, "result_status": result.get("status")})
+            # Ensure consistent response structure
+            if "success" not in result:
+                result["success"] = result.get("status") == "completed"
+            
+            await self.log_action("task_completed", {"operation": operation, "result_status": result.get("status", "completed")})
             return result
             
+        except ThreatDetectedError as e:
+            error_result = {
+                "success": False,
+                "message": f"Threat detected: {e.threat_type} ({e.severity})",
+                "data": {
+                    "threat_type": e.threat_type,
+                    "severity": e.severity,
+                    "threats": e.details.get("threats", [])
+                },
+                "error": "THREAT_DETECTED"
+            }
+            await self.log_action("task_threat_detected", {"operation": operation, "threat": str(e)})
+            return error_result
         except Exception as e:
             await self.log_action("task_error", {"operation": operation, "error": str(e)})
             return {
-                "status": "error",
-                "error": str(e),
-                "operation": operation
+                "success": False,
+                "message": str(e),
+                "data": None,
+                "error": type(e).__name__
             }
 
     async def check_authorization(self, target: str) -> bool:
@@ -148,10 +264,21 @@ class SecurityShieldAgent(BaseAgent):
         # But we still log and validate critical operations
         
         # Block operations on critical system files unless explicitly allowed
-        protected_paths = ["/boot/", "/efi/", "/system32/drivers/"]
+        protected_paths = [
+            "/boot/", 
+            "/efi/", 
+            "/system32/drivers/",
+            "/etc/shadow",
+            "/etc/passwd",
+            "/etc/sudoers",
+            "/root/.ssh/",
+            "C:\\Windows\\System32\\config\\SAM",
+            "C:\\Windows\\System32\\config\\SYSTEM"
+        ]
         
+        target_lower = target.lower()
         for protected in protected_paths:
-            if protected.lower() in target.lower():
+            if protected.lower() in target_lower:
                 # Require additional authorization for critical paths
                 await self.log_action("protected_path_access", {"path": target})
                 return False  # In production, implement proper authorization flow
@@ -497,6 +624,500 @@ class SecurityShieldAgent(BaseAgent):
             "severity": severity.value,
             "details": details
         })
+        
+        return {
+            "status": "alert_raised",
+            "alert_id": hashlib.md5(f"{threat_type.value}{severity.value}".encode()).hexdigest()[:8],
+            "threat_type": threat_type.value,
+            "severity": severity.value,
+            "timestamp": datetime.now().isoformat(),
+            "action_required": True
+        }
+
+    # Public methods for test compatibility
+    async def scan_content_for_injection(self, content: str, source: str = "unknown",
+                                         **kwargs) -> Dict[str, Any]:
+        """
+        Scan content for AI prompt injection attacks (public method).
+        
+        Args:
+            content: Content to analyze for injection attempts
+            source: Source of the content (email, pdf, web, etc.)
+            
+        Returns:
+            Dictionary with structure: {"success": bool, "message": str, "data": any, "error": str|null}
+        """
+        await self.log_action("scan_content_for_injection", {"source": source, "content_length": len(content)})
+        
+        threats_found = []
+        
+        # Check against compiled regex patterns
+        for i, pattern in enumerate(self._injection_regex):
+            try:
+                if pattern.search(content):
+                    threats_found.append({
+                        "pattern_index": i,
+                        "pattern": self.PROMPT_INJECTION_PATTERNS[i],
+                        "match": True
+                    })
+            except Exception:
+                # Fallback to simple string matching
+                pass
+        
+        # Also check simple string patterns
+        simple_patterns = [
+            "ignore previous instructions",
+            "bypass security",
+            "execute this command",
+            "system override",
+            "admin mode",
+            "developer mode",
+            "jailbreak"
+        ]
+        
+        for pattern in simple_patterns:
+            if pattern.lower() in content.lower():
+                if not any(t.get("pattern") == pattern for t in threats_found):
+                    threats_found.append({
+                        "type": "simple_match",
+                        "pattern": pattern,
+                        "match": True
+                    })
+        
+        if threats_found:
+            self._current_threat_level = ThreatLevel.HIGH
+            raise ThreatDetectedError(
+                threat_type="PROMPT_INJECTION",
+                severity="HIGH",
+                details={"threats": threats_found, "source": source}
+            )
+        
+        return {
+            "success": True,
+            "message": "Content is safe",
+            "data": {
+                "is_safe": True,
+                "threats_found": [],
+                "source": source,
+                "content_hash": hash(content) & 0xFFFFFFFF
+            },
+            "error": None
+        }
+
+    async def audit_credentials_storage(self, paths: List[str], **kwargs) -> Dict[str, Any]:
+        """
+        Audit storage paths for exposed credentials.
+        
+        Args:
+            paths: List of file/directory paths to audit
+            
+        Returns:
+            Dictionary with audit results
+        """
+        await self.log_action("audit_credentials_storage", {"paths": paths})
+        
+        vulnerabilities = []
+        recommendations = []
+        
+        for path_str in paths:
+            path = Path(path_str)
+            if not path.exists():
+                continue
+            
+            files_to_check = []
+            if path.is_file():
+                files_to_check.append(path)
+            elif path.is_dir():
+                files_to_check.extend(list(path.glob("**/*")))
+            
+            for file_path in files_to_check:
+                if not file_path.is_file():
+                    continue
+                try:
+                    content = file_path.read_text(errors='ignore')
+                    
+                    for i, pattern in enumerate(self._credential_regex):
+                        try:
+                            matches = pattern.findall(content)
+                            if matches:
+                                vuln_type = self._get_vulnerability_type_from_pattern(i)
+                                vulnerabilities.append({
+                                    "file": str(file_path),
+                                    "type": vuln_type,
+                                    "line_count": len(matches),
+                                    "severity": "HIGH" if "aws" in vuln_type or "github" in vuln_type else "MEDIUM"
+                                })
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        
+        # Generate recommendations
+        if any(v["type"] == "plaintext_password" for v in vulnerabilities):
+            recommendations.append("Use environment variables or secret management for passwords")
+        if any(v["type"] == "api_key_exposed" for v in vulnerabilities):
+            recommendations.append("Rotate exposed API keys immediately")
+        if any(v["type"] == "aws_credentials" for v in vulnerabilities):
+            recommendations.append("Use IAM roles instead of hardcoded AWS credentials")
+        if any(v["type"] == "github_token" for v in vulnerabilities):
+            recommendations.append("Revoke exposed GitHub tokens and generate new ones")
+        
+        if not recommendations and vulnerabilities:
+            recommendations.append("Review and secure exposed credentials")
+        
+        total_vulns = len(vulnerabilities)
+        severity = "LOW" if total_vulns == 0 else ("CRITICAL" if any(v["severity"] == "CRITICAL" for v in vulnerabilities) else ("HIGH" if any(v["severity"] == "HIGH" for v in vulnerabilities) else "MEDIUM"))
+        
+        return {
+            "success": True,
+            "message": f"Audit completed: {total_vulns} vulnerabilities found",
+            "data": {
+                "total_vulnerabilities": total_vulns,
+                "vulnerabilities": vulnerabilities,
+                "recommendations": recommendations,
+                "severity": severity,
+                "paths_audited": len(paths)
+            },
+            "error": None
+        }
+
+    def _get_vulnerability_type_from_pattern(self, pattern_index: int) -> str:
+        """Map pattern index to vulnerability type."""
+        pattern = self.CREDENTIAL_PATTERNS[pattern_index]
+        if "password" in pattern.lower():
+            return "plaintext_password"
+        if "api" in pattern.lower() or "key" in pattern.lower():
+            return "api_key_exposed"
+        if "aws" in pattern or "AKIA" in pattern:
+            return "aws_credentials"
+        if "github" in pattern or "ghp_" in pattern:
+            return "github_token"
+        if "slack" in pattern or "xox" in pattern:
+            return "slack_token"
+        if "secret" in pattern.lower():
+            return "secret_key_exposed"
+        if "token" in pattern.lower():
+            return "auth_token_exposed"
+        if "private" in pattern.lower():
+            return "private_key_exposed"
+        return "credential_exposed"
+
+    async def analyze_process_behavior(self, process_id: int, **kwargs) -> Dict[str, Any]:
+        """
+        Analyze behavior of a specific process.
+        
+        Args:
+            process_id: PID of the process to analyze
+            
+        Returns:
+            Dictionary with analysis results
+        """
+        await self.log_action("analyze_process_behavior", {"process_id": process_id})
+        
+        if not PSUTIL_AVAILABLE:
+            return {
+                "success": False,
+                "message": "psutil not available for process analysis",
+                "data": {"risk_score": 0},
+                "error": "PSUTIL_UNAVAILABLE"
+            }
+        
+        try:
+            process = psutil.Process(process_id)
+            process_info = {
+                "exe_path": process.exe(),
+                "cwd": process.cwd(),
+                "memory_percent": process.memory_percent(),
+                "cpu_percent": process.cpu_percent(interval=0.1),
+                "num_threads": process.num_threads(),
+                "connections": len(process.connections()),
+                "open_files": len(process.open_files())
+            }
+            
+            # Calculate risk score based on behavior
+            risk_score = 0
+            
+            # Execution from temp directory
+            if "/tmp/" in process_info["exe_path"] or "\\Temp\\" in process_info["exe_path"]:
+                risk_score += 30
+            
+            # High memory usage
+            if process_info["memory_percent"] > 50:
+                risk_score += 20
+            
+            # Many connections
+            if process_info["connections"] > 50:
+                risk_score += 25
+            
+            # Many threads
+            if process_info["num_threads"] > 100:
+                risk_score += 15
+            
+            # Cap at 100
+            risk_score = min(risk_score, 100)
+            
+            return {
+                "success": True,
+                "message": f"Process analysis completed (PID: {process_id})",
+                "data": {
+                    "process_id": process_id,
+                    "risk_score": risk_score,
+                    "process_info": process_info,
+                    "recommendation": "investigate" if risk_score > 50 else "normal"
+                },
+                "error": None
+            }
+            
+        except psutil.NoSuchProcess:
+            return {
+                "success": False,
+                "message": f"Process {process_id} not found",
+                "data": None,
+                "error": "PROCESS_NOT_FOUND"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": str(e),
+                "data": None,
+                "error": type(e).__name__
+            }
+
+    async def detect_zero_day_indicators(self, process_info: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+        """
+        Detect zero-day attack indicators from process information.
+        
+        Args:
+            process_info: Dictionary containing process behavioral data
+            
+        Returns:
+            Dictionary with detection results
+        """
+        await self.log_action("detect_zero_day_indicators", {"process_info_keys": list(process_info.keys())})
+        
+        indicators = []
+        severity = ThreatLevel.NONE
+        
+        # Check execution path
+        exe_path = process_info.get("exe_path", "")
+        if "/tmp/" in exe_path or "\\Temp\\" in exe_path:
+            indicators.append("Execution from temporary directory")
+            severity = ThreatLevel.MEDIUM
+        
+        # Check registry modifications
+        registry_mods = process_info.get("registry_modifications", 0)
+        if registry_mods > 0:
+            indicators.append(f"Registry modifications detected: {registry_mods}")
+            if registry_mods >= 3:
+                severity = ThreatLevel.HIGH
+        
+        # Check suspicious file writes
+        file_writes = process_info.get("file_writes", [])
+        suspicious_paths = ["/etc/", "/usr/bin/", "/system32/", "\\Windows\\System32\\"]
+        for fw in file_writes:
+            if any(sp in fw for sp in suspicious_paths):
+                indicators.append(f"Suspicious file write: {fw}")
+                severity = ThreatLevel.HIGH
+        
+        # Check thread injection
+        injected_threads = process_info.get("injected_threads", 0)
+        if injected_threads > 0:
+            indicators.append(f"Thread injection detected: {injected_threads}")
+            severity = ThreatLevel.CRITICAL
+        
+        # Check network exfiltration
+        network_bytes = process_info.get("network_bytes_sent", 0)
+        if network_bytes > 10 * 1024 * 1024:  # 10MB
+            indicators.append(f"Large data transfer: {network_bytes / (1024*1024):.2f} MB")
+            if severity == ThreatLevel.HIGH:
+                severity = ThreatLevel.CRITICAL
+        
+        if severity == ThreatLevel.CRITICAL:
+            raise ThreatDetectedError(
+                threat_type="ZERO_DAY",
+                severity="CRITICAL",
+                details={"indicators": indicators, "process_info": process_info}
+            )
+        
+        return {
+            "success": True,
+            "message": f"Zero-day analysis completed: {len(indicators)} indicators found",
+            "data": {
+                "indicators_found": indicators,
+                "severity": severity.value,
+                "requires_investigation": len(indicators) > 0
+            },
+            "error": None
+        }
+
+    async def create_system_snapshot(self, paths: List[str], name: str = "manual", 
+                                     **kwargs) -> Dict[str, Any]:
+        """
+        Create a system snapshot for rollback purposes.
+        
+        Args:
+            paths: List of file/directory paths to snapshot
+            name: Name for the snapshot
+            
+        Returns:
+            Dictionary with snapshot results
+        """
+        await self.log_action("create_system_snapshot", {"paths": paths, "name": name})
+        
+        import time
+        snapshot_id = f"snapshot_{int(time.time())}_{hashlib.md5(name.encode()).hexdigest()[:6]}"
+        files_hashed = 0
+        snapshot_data = {"files": {}, "metadata": {"name": name, "created_at": datetime.now().isoformat()}}
+        
+        for path_str in paths:
+            path = Path(path_str)
+            if not path.exists():
+                continue
+            
+            files_to_hash = []
+            if path.is_file():
+                files_to_hash.append(path)
+            elif path.is_dir():
+                files_to_hash.extend(list(path.glob("**/*")))
+            
+            for file_path in files_to_hash:
+                if file_path.is_file():
+                    try:
+                        content = file_path.read_bytes()
+                        file_hash = hashlib.sha256(content).hexdigest()
+                        snapshot_data["files"][str(file_path)] = {
+                            "hash": file_hash,
+                            "size": len(content),
+                            "relative_path": str(file_path.relative_to(path.parent)) if path.is_dir() else str(file_path.name)
+                        }
+                        files_hashed += 1
+                    except Exception:
+                        pass
+        
+        snapshot_record = {
+            "snapshot_id": snapshot_id,
+            "name": name,
+            "files_hashed": files_hashed,
+            "created_at": datetime.now().isoformat(),
+            "paths": paths
+        }
+        self._system_snapshots.append(snapshot_record)
+        
+        # Save snapshot metadata to disk
+        snapshot_file = self._snapshots_dir / f"{snapshot_id}.json"
+        with open(snapshot_file, 'w') as f:
+            json.dump(snapshot_data, f)
+        
+        return {
+            "success": True,
+            "message": f"Snapshot created: {snapshot_id}",
+            "data": {
+                "snapshot_id": snapshot_id,
+                "files_hashed": files_hashed,
+                "snapshot_file": str(snapshot_file),
+                "created_at": snapshot_record["created_at"]
+            },
+            "error": None
+        }
+
+    async def rollback_to_snapshot(self, snapshot_id: str, **kwargs) -> Dict[str, Any]:
+        """
+        Rollback system to a previous snapshot.
+        
+        Args:
+            snapshot_id: ID of the snapshot to restore
+            
+        Returns:
+            Dictionary with rollback results
+        """
+        await self.log_action("rollback_to_snapshot", {"snapshot_id": snapshot_id})
+        
+        # Find snapshot
+        snapshot_file = self._snapshots_dir / f"{snapshot_id}.json"
+        if not snapshot_file.exists():
+            raise RollbackError(f"Snapshot {snapshot_id} not found", snapshot_id=snapshot_id)
+        
+        try:
+            with open(snapshot_file, 'r') as f:
+                snapshot_data = json.load(f)
+            
+            files_count = len(snapshot_data.get("files", {}))
+            
+            return {
+                "success": True,
+                "message": f"Rollback to {snapshot_id} prepared (simulated for safety)",
+                "data": {
+                    "snapshot_id": snapshot_id,
+                    "files_to_restore": files_count,
+                    "status": "simulated",
+                    "requires_restart": True
+                },
+                "error": None
+            }
+        except Exception as e:
+            raise RollbackError(f"Failed to load snapshot: {str(e)}", snapshot_id=snapshot_id)
+
+    async def validate_action_safety(self, action: str, context: Dict[str, Any], 
+                                     **kwargs) -> Dict[str, Any]:
+        """
+        Validate if an action is safe to execute.
+        
+        Args:
+            action: The action to validate
+            context: Additional context about the action
+            
+        Returns:
+            Dictionary with validation results
+        """
+        await self.log_action("validate_action_safety", {"action": action, "context": context})
+        
+        risk_score = 0
+        unsafe_patterns = []
+        
+        action_lower = action.lower()
+        
+        # Check for dangerous commands
+        dangerous_patterns = [
+            ("rm -rf", 50),
+            ("format", 60),
+            ("del /", 50),
+            ("chmod 777", 30),
+            ("sudo", 20),
+            ("powershell", 15),
+            ("cmd.exe", 15),
+            ("/bin/sh", 20),
+            ("/bin/bash", 20),
+        ]
+        
+        for pattern, score in dangerous_patterns:
+            if pattern in action_lower:
+                risk_score += score
+                unsafe_patterns.append(pattern)
+        
+        # Context modifiers
+        if context.get("external_source"):
+            risk_score += 20
+        if context.get("user_verified"):
+            risk_score -= 15
+        if context.get("trusted_source"):
+            risk_score -= 10
+        
+        # Cap risk score
+        risk_score = max(0, min(100, risk_score))
+        
+        is_safe = risk_score < 30
+        
+        return {
+            "success": True,
+            "message": "Action validated" if is_safe else "Action flagged as potentially unsafe",
+            "data": {
+                "safe": is_safe,
+                "risk_score": risk_score,
+                "unsafe_patterns": unsafe_patterns,
+                "context_factors": context
+            },
+            "error": None
+        }
         
         self._current_threat_level = severity
         
