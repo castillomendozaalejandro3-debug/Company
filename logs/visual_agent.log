@@ -365,3 +365,147 @@
 [2026-06-06 18:33:51] [test_action] [INFO] [{'key': 'value'}]
 [2026-06-06 18:33:51] [INFO] [VisualAgent_visual-001] test_action: {'key': 'value'}
 [2026-06-06 18:33:51] [get_secondary_monitor_bounds] [SIMULATED] [{'bounds': {'x': 1920, 'y': 0, 'width': 1920, 'height': 1080}}]
+[2026-06-06 18:48:08] [task_received] [INFO] [{'task': {'operation': 'capture_screen', 'target': 'screen', 'parameters': {'monitor_index': 0}}}]
+[2026-06-06 18:48:08] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'capture_screen', 'target': 'screen', 'parameters': {'monitor_index': 0}}}
+[2026-06-06 18:48:08] [capture_screen] [PENDING] [{'region': None}]
+[2026-06-06 18:48:08] [capture_screen] [SIMULATED] [{'region': None}]
+[2026-06-06 18:48:08] [task_completed] [INFO] [{'operation': 'capture_screen', 'success': True}]
+[2026-06-06 18:48:08] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'capture_screen', 'success': True}
+[2026-06-06 18:48:09] [task_received] [INFO] [{'task': {'operation': 'capture_screen', 'target': 'localhost', 'parameters': {}, 'context': {'target': 'localhost'}, 'original_request': 'Captura la pantalla del monitor secundario'}}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'capture_screen', 'target': 'localhost', 'parameters': {}, 'context': {'target': 'localhost'}, 'original_request': 'Captura la pantalla del monitor secundario'}}
+[2026-06-06 18:48:09] [capture_screen] [PENDING] [{'region': None}]
+[2026-06-06 18:48:09] [capture_screen] [SIMULATED] [{'region': None}]
+[2026-06-06 18:48:09] [task_completed] [INFO] [{'operation': 'capture_screen', 'success': True}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'capture_screen', 'success': True}
+[2026-06-06 18:48:09] [task_received] [INFO] [{'task': {'operation': 'test', 'target': 'localhost'}}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'test', 'target': 'localhost'}}
+[2026-06-06 18:48:09] [task_completed] [INFO] [{'operation': 'test', 'success': False}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'test', 'success': False}
+[2026-06-06 18:48:09] [get_secondary_monitor_bounds] [SIMULATED] [{'bounds': {'x': 1920, 'y': 0, 'width': 1920, 'height': 1080}}]
+[2026-06-06 18:48:09] [get_secondary_monitor_bounds] [SUCCESS] [{'bounds': {'x': 1920, 'y': 0, 'width': 1920, 'height': 1080}}]
+[2026-06-06 18:48:09] [capture_screen] [PENDING] [{'region': None}]
+[2026-06-06 18:48:09] [capture_screen] [SIMULATED] [{'region': None}]
+[2026-06-06 18:48:09] [capture_screen] [PENDING] [{'region': {'x': 100, 'y': 100, 'width': 500, 'height': 400}}]
+[2026-06-06 18:48:09] [capture_screen] [SIMULATED] [{'region': {'x': 100, 'y': 100, 'width': 500, 'height': 400}}]
+[2026-06-06 18:48:09] [find_element_on_screen] [PENDING] [{'target': 'Test Button', 'method': 'ocr'}]
+[2026-06-06 18:48:09] [find_element_on_screen] [ERROR] [{'error': "'NoneType' object has no attribute 'screenshot'"}]
+[2026-06-06 18:48:09] [find_element_on_screen] [PENDING] [{'target': '/path/to/template.png', 'method': 'template'}]
+[2026-06-06 18:48:09] [find_element_on_screen] [ERROR] [{'error': "'NoneType' object has no attribute 'screenshot'"}]
+[2026-06-06 18:48:09] [find_element_on_screen] [PENDING] [{'target': 'test', 'method': 'invalid'}]
+[2026-06-06 18:48:09] [find_element_on_screen] [ERROR] [{'error': "Unknown method: invalid. Use 'ocr' or 'template'."}]
+[2026-06-06 18:48:09] [interact_with_element] [PENDING] [{'x': 500, 'y': 300, 'action': 'click'}]
+[2026-06-06 18:48:09] [interact_with_element] [SIMULATED] [{'x': 500, 'y': 300, 'action': 'click'}]
+[2026-06-06 18:48:09] [interact_with_element] [PENDING] [{'x': 500, 'y': 300, 'action': 'double_click'}]
+[2026-06-06 18:48:09] [interact_with_element] [SIMULATED] [{'x': 500, 'y': 300, 'action': 'double_click'}]
+[2026-06-06 18:48:09] [interact_with_element] [PENDING] [{'x': 50, 'y': 1000, 'action': 'click'}]
+[2026-06-06 18:48:09] [interact_with_element] [BLOCKED] [{'x': 50, 'y': 1000, 'action': 'click', 'warning': 'Near Start menu area'}]
+[2026-06-06 18:48:09] [interact_with_element] [PENDING] [{'x': 1900, 'y': 50, 'action': 'click'}]
+[2026-06-06 18:48:09] [interact_with_element] [BLOCKED] [{'x': 1900, 'y': 50, 'action': 'click', 'warning': 'Near system tray area'}]
+[2026-06-06 18:48:09] [type_text_safely] [PENDING] [{'text_length': 11, 'interval': 0.1}]
+[2026-06-06 18:48:09] [type_text_safely] [SIMULATED] [{'text_length': 11}]
+[2026-06-06 18:48:09] [type_text_safely] [PENDING] [{'text_length': 0, 'interval': 0.1}]
+[2026-06-06 18:48:09] [type_text_safely] [SIMULATED] [{'text_length': 0}]
+[2026-06-06 18:48:09] [task_received] [INFO] [{'task': {'operation': 'capture_screen', 'parameters': {}}}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'capture_screen', 'parameters': {}}}
+[2026-06-06 18:48:09] [capture_screen] [PENDING] [{'region': None}]
+[2026-06-06 18:48:09] [capture_screen] [SIMULATED] [{'region': None}]
+[2026-06-06 18:48:09] [task_completed] [INFO] [{'operation': 'capture_screen', 'success': True}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'capture_screen', 'success': True}
+[2026-06-06 18:48:09] [task_received] [INFO] [{'task': {'operation': 'find_element', 'parameters': {'target': 'Submit Button', 'method': 'ocr'}}}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'find_element', 'parameters': {'target': 'Submit Button', 'method': 'ocr'}}}
+[2026-06-06 18:48:09] [find_element_on_screen] [PENDING] [{'target': 'Submit Button', 'method': 'ocr'}]
+[2026-06-06 18:48:09] [find_element_on_screen] [ERROR] [{'error': "'NoneType' object has no attribute 'screenshot'"}]
+[2026-06-06 18:48:09] [task_completed] [INFO] [{'operation': 'find_element', 'success': False}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'find_element', 'success': False}
+[2026-06-06 18:48:09] [task_received] [INFO] [{'task': {'operation': 'interact', 'parameters': {'x': 500, 'y': 300, 'action': 'click'}}}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'interact', 'parameters': {'x': 500, 'y': 300, 'action': 'click'}}}
+[2026-06-06 18:48:09] [interact_with_element] [PENDING] [{'x': 500, 'y': 300, 'action': 'click'}]
+[2026-06-06 18:48:09] [interact_with_element] [SIMULATED] [{'x': 500, 'y': 300, 'action': 'click'}]
+[2026-06-06 18:48:09] [task_completed] [INFO] [{'operation': 'interact', 'success': True}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'interact', 'success': True}
+[2026-06-06 18:48:09] [task_received] [INFO] [{'task': {'operation': 'type_text', 'parameters': {'text': 'Hello', 'interval': 0.1}}}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'type_text', 'parameters': {'text': 'Hello', 'interval': 0.1}}}
+[2026-06-06 18:48:09] [type_text_safely] [PENDING] [{'text_length': 5, 'interval': 0.1}]
+[2026-06-06 18:48:09] [type_text_safely] [SIMULATED] [{'text_length': 5}]
+[2026-06-06 18:48:09] [task_completed] [INFO] [{'operation': 'type_text', 'success': True}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'type_text', 'success': True}
+[2026-06-06 18:48:09] [task_received] [INFO] [{'task': {'operation': 'unknown_op', 'parameters': {}}}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'unknown_op', 'parameters': {}}}
+[2026-06-06 18:48:09] [task_completed] [INFO] [{'operation': 'unknown_op', 'success': False}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'unknown_op', 'success': False}
+[2026-06-06 18:48:09] [test_action] [SUCCESS] [{'test': 'data'}]
+[2026-06-06 18:48:09] [test_action] [INFO] [{'key': 'value'}]
+[2026-06-06 18:48:09] [INFO] [VisualAgent_visual-001] test_action: {'key': 'value'}
+[2026-06-06 18:48:09] [get_secondary_monitor_bounds] [SIMULATED] [{'bounds': {'x': 1920, 'y': 0, 'width': 1920, 'height': 1080}}]
+[2026-06-06 18:48:17] [task_received] [INFO] [{'task': {'operation': 'capture_screen', 'target': 'screen', 'parameters': {'monitor_index': 0}}}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'capture_screen', 'target': 'screen', 'parameters': {'monitor_index': 0}}}
+[2026-06-06 18:48:17] [capture_screen] [PENDING] [{'region': None}]
+[2026-06-06 18:48:17] [capture_screen] [SIMULATED] [{'region': None}]
+[2026-06-06 18:48:17] [task_completed] [INFO] [{'operation': 'capture_screen', 'success': True}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'capture_screen', 'success': True}
+[2026-06-06 18:48:17] [task_received] [INFO] [{'task': {'operation': 'capture_screen', 'target': 'localhost', 'parameters': {}, 'context': {'target': 'localhost'}, 'original_request': 'Captura la pantalla del monitor secundario'}}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'capture_screen', 'target': 'localhost', 'parameters': {}, 'context': {'target': 'localhost'}, 'original_request': 'Captura la pantalla del monitor secundario'}}
+[2026-06-06 18:48:17] [capture_screen] [PENDING] [{'region': None}]
+[2026-06-06 18:48:17] [capture_screen] [SIMULATED] [{'region': None}]
+[2026-06-06 18:48:17] [task_completed] [INFO] [{'operation': 'capture_screen', 'success': True}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'capture_screen', 'success': True}
+[2026-06-06 18:48:17] [task_received] [INFO] [{'task': {'operation': 'test', 'target': 'localhost'}}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'test', 'target': 'localhost'}}
+[2026-06-06 18:48:17] [task_completed] [INFO] [{'operation': 'test', 'success': False}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'test', 'success': False}
+[2026-06-06 18:48:17] [get_secondary_monitor_bounds] [SIMULATED] [{'bounds': {'x': 1920, 'y': 0, 'width': 1920, 'height': 1080}}]
+[2026-06-06 18:48:17] [get_secondary_monitor_bounds] [SUCCESS] [{'bounds': {'x': 1920, 'y': 0, 'width': 1920, 'height': 1080}}]
+[2026-06-06 18:48:17] [capture_screen] [PENDING] [{'region': None}]
+[2026-06-06 18:48:17] [capture_screen] [SIMULATED] [{'region': None}]
+[2026-06-06 18:48:17] [capture_screen] [PENDING] [{'region': {'x': 100, 'y': 100, 'width': 500, 'height': 400}}]
+[2026-06-06 18:48:17] [capture_screen] [SIMULATED] [{'region': {'x': 100, 'y': 100, 'width': 500, 'height': 400}}]
+[2026-06-06 18:48:17] [find_element_on_screen] [PENDING] [{'target': 'Test Button', 'method': 'ocr'}]
+[2026-06-06 18:48:17] [find_element_on_screen] [ERROR] [{'error': "'NoneType' object has no attribute 'screenshot'"}]
+[2026-06-06 18:48:17] [find_element_on_screen] [PENDING] [{'target': '/path/to/template.png', 'method': 'template'}]
+[2026-06-06 18:48:17] [find_element_on_screen] [ERROR] [{'error': "'NoneType' object has no attribute 'screenshot'"}]
+[2026-06-06 18:48:17] [find_element_on_screen] [PENDING] [{'target': 'test', 'method': 'invalid'}]
+[2026-06-06 18:48:17] [find_element_on_screen] [ERROR] [{'error': "Unknown method: invalid. Use 'ocr' or 'template'."}]
+[2026-06-06 18:48:17] [interact_with_element] [PENDING] [{'x': 500, 'y': 300, 'action': 'click'}]
+[2026-06-06 18:48:17] [interact_with_element] [SIMULATED] [{'x': 500, 'y': 300, 'action': 'click'}]
+[2026-06-06 18:48:17] [interact_with_element] [PENDING] [{'x': 500, 'y': 300, 'action': 'double_click'}]
+[2026-06-06 18:48:17] [interact_with_element] [SIMULATED] [{'x': 500, 'y': 300, 'action': 'double_click'}]
+[2026-06-06 18:48:17] [interact_with_element] [PENDING] [{'x': 50, 'y': 1000, 'action': 'click'}]
+[2026-06-06 18:48:17] [interact_with_element] [BLOCKED] [{'x': 50, 'y': 1000, 'action': 'click', 'warning': 'Near Start menu area'}]
+[2026-06-06 18:48:17] [interact_with_element] [PENDING] [{'x': 1900, 'y': 50, 'action': 'click'}]
+[2026-06-06 18:48:17] [interact_with_element] [BLOCKED] [{'x': 1900, 'y': 50, 'action': 'click', 'warning': 'Near system tray area'}]
+[2026-06-06 18:48:17] [type_text_safely] [PENDING] [{'text_length': 11, 'interval': 0.1}]
+[2026-06-06 18:48:17] [type_text_safely] [SIMULATED] [{'text_length': 11}]
+[2026-06-06 18:48:17] [type_text_safely] [PENDING] [{'text_length': 0, 'interval': 0.1}]
+[2026-06-06 18:48:17] [type_text_safely] [SIMULATED] [{'text_length': 0}]
+[2026-06-06 18:48:17] [task_received] [INFO] [{'task': {'operation': 'capture_screen', 'parameters': {}}}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'capture_screen', 'parameters': {}}}
+[2026-06-06 18:48:17] [capture_screen] [PENDING] [{'region': None}]
+[2026-06-06 18:48:17] [capture_screen] [SIMULATED] [{'region': None}]
+[2026-06-06 18:48:17] [task_completed] [INFO] [{'operation': 'capture_screen', 'success': True}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'capture_screen', 'success': True}
+[2026-06-06 18:48:17] [task_received] [INFO] [{'task': {'operation': 'find_element', 'parameters': {'target': 'Submit Button', 'method': 'ocr'}}}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'find_element', 'parameters': {'target': 'Submit Button', 'method': 'ocr'}}}
+[2026-06-06 18:48:17] [find_element_on_screen] [PENDING] [{'target': 'Submit Button', 'method': 'ocr'}]
+[2026-06-06 18:48:17] [find_element_on_screen] [ERROR] [{'error': "'NoneType' object has no attribute 'screenshot'"}]
+[2026-06-06 18:48:17] [task_completed] [INFO] [{'operation': 'find_element', 'success': False}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'find_element', 'success': False}
+[2026-06-06 18:48:17] [task_received] [INFO] [{'task': {'operation': 'interact', 'parameters': {'x': 500, 'y': 300, 'action': 'click'}}}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'interact', 'parameters': {'x': 500, 'y': 300, 'action': 'click'}}}
+[2026-06-06 18:48:17] [interact_with_element] [PENDING] [{'x': 500, 'y': 300, 'action': 'click'}]
+[2026-06-06 18:48:17] [interact_with_element] [SIMULATED] [{'x': 500, 'y': 300, 'action': 'click'}]
+[2026-06-06 18:48:17] [task_completed] [INFO] [{'operation': 'interact', 'success': True}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'interact', 'success': True}
+[2026-06-06 18:48:17] [task_received] [INFO] [{'task': {'operation': 'type_text', 'parameters': {'text': 'Hello', 'interval': 0.1}}}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'type_text', 'parameters': {'text': 'Hello', 'interval': 0.1}}}
+[2026-06-06 18:48:17] [type_text_safely] [PENDING] [{'text_length': 5, 'interval': 0.1}]
+[2026-06-06 18:48:17] [type_text_safely] [SIMULATED] [{'text_length': 5}]
+[2026-06-06 18:48:17] [task_completed] [INFO] [{'operation': 'type_text', 'success': True}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'type_text', 'success': True}
+[2026-06-06 18:48:17] [task_received] [INFO] [{'task': {'operation': 'unknown_op', 'parameters': {}}}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_received: {'task': {'operation': 'unknown_op', 'parameters': {}}}
+[2026-06-06 18:48:17] [task_completed] [INFO] [{'operation': 'unknown_op', 'success': False}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] task_completed: {'operation': 'unknown_op', 'success': False}
+[2026-06-06 18:48:17] [test_action] [SUCCESS] [{'test': 'data'}]
+[2026-06-06 18:48:17] [test_action] [INFO] [{'key': 'value'}]
+[2026-06-06 18:48:17] [INFO] [VisualAgent_visual-001] test_action: {'key': 'value'}
+[2026-06-06 18:48:17] [get_secondary_monitor_bounds] [SIMULATED] [{'bounds': {'x': 1920, 'y': 0, 'width': 1920, 'height': 1080}}]
