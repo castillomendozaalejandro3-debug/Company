@@ -17,6 +17,13 @@ from abc import ABC, abstractmethod
 
 from .base_agent import BaseAgent
 
+# Importar validador de seguridad
+try:
+    from ai_engine.core.security.path_validator import validate_path, is_safe_path
+    PATH_VALIDATOR_AVAILABLE = True
+except ImportError:
+    PATH_VALIDATOR_AVAILABLE = False
+
 
 # Custom Exceptions
 class SecurityValidationError(Exception):

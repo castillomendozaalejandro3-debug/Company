@@ -11,6 +11,7 @@ regex>=2023.10.3
 
 # Cryptography
 hashlib-compat>=1.0.0
+cryptography>=41.0.0
 
 # Visual Agent Dependencies
 pyautogui>=0.9.54
@@ -21,3 +22,18 @@ Pillow>=10.0.0
 # Testing
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
+
+# Observability and Monitoring (Prometheus, Grafana integration)
+prometheus_client>=0.19.0
+aiosmtplib>=3.0.0
+
+# HTTP Client for async operations
+aiohttp>=3.9.0
+
+# WhatsApp Integration
+twilio>=8.0.0
+
+# Google APIs (Classroom, etc.)
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.0

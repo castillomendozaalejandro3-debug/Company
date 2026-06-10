@@ -1,0 +1,121 @@
+# Prometheus Configuration for Helios AI Engine
+# Enterprise monitoring setup
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'helios-ai-engine'
+    environment: 'production'
+
+# Alertmanager configuration (optional)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Rule files for recording rules and alerts
+rule_files:
+  - "helios_alerts.yml"
+  - "helios_recording_rules.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Job for scraping Helios AI Engine metrics
+  - job_name: 'helios-ai-engine'
+    static_configs:
+      - targets: ['helios-api:8000']
+        labels:
+          application: 'helios'
+          component: 'api'
+    metrics_path: '/metrics'
+    scheme: 'http'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    
+  # Job for scraping Helios Kernel metrics
+  - job_name: 'helios-kernel'
+    static_configs:
+      - targets: ['helios-kernel:8001']
+        labels:
+          application: 'helios'
+          component: 'kernel'
+    metrics_path: '/metrics'
+    scheme: 'http'
+    scrape_interval: 10s
+    
+  # Job for scraping agent-specific metrics
+  - job_name: 'helios-agents'
+    static_configs:
+      - targets: 
+        - 'whatsapp-agent:8010'
+        - 'instagram-agent:8011'
+        - 'classroom-agent:8012'
+        - 'task-manager-agent:8013'
+        labels:
+          application: 'helios'
+          component: 'agents'
+    metrics_path: '/metrics'
+    scheme: 'http'
+    scrape_interval: 15s
+    
+  # Job for scraping node exporter (system metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          application: 'helios'
+          component: 'infrastructure'
+    
+  # Job for scraping cAdvisor (container metrics)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          application: 'helios'
+          component: 'containers'
+    
+  # Job for scraping Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          application: 'prometheus'
+          component: 'monitoring'
+
+  # Optional: Blackbox exporter for endpoint probing
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - http://helios-api:8000/health
+        - http://helios-api:8000/metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Optional: Pushgateway for batch jobs
+  - job_name: 'pushgateway'
+    honor_labels: true
+    static_configs:
+      - targets: ['pushgateway:9091']
+
+# Remote write configuration (optional - for long-term storage)
+# remote_write:
+#   - url: "http://thanos-receive:19291/api/v1/receive"
+#     queue_config:
+#       capacity: 10000
+#       max_shards: 50
+#       max_samples_per_send: 5000
+
+# Remote read configuration (optional)
+# remote_read:
+#   - url: "http://thanos-query:10902/api/v1"
+#     read_recent: true
