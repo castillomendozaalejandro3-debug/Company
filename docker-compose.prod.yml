@@ -1,0 +1,171 @@
+version: '3.8'
+
+# Docker Compose para Producción - Helios AI
+# Incluye: Rust Core, KernelDaemon, Workers, Dashboard, Monitoreo
+
+services:
+  # Núcleo Rust (gRPC Server)
+  rust-core:
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    container_name: helios-rust-core
+    restart: unless-stopped
+    networks:
+      - helios-network
+    ports:
+      - "50051:50051"
+    environment:
+      - RUST_LOG=info
+      - HELIOS_ENV=production
+    volumes:
+      - rust-data:/data
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "50051"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # KernelDaemon Python
+  kernel-daemon:
+    build:
+      context: ./ai_engine
+      dockerfile: Dockerfile
+    container_name: helios-kernel-daemon
+    restart: unless-stopped
+    depends_on:
+      rust-core:
+        condition: service_healthy
+    networks:
+      - helios-network
+    ports:
+      - "50052:50052"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - RUST_CORE_HOST=rust-core
+      - RUST_CORE_PORT=50051
+      - EMAIL_USER=${EMAIL_USER}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+    volumes:
+      - daemon-data:/app/data
+      - daemon-logs:/app/logs
+      - ./config:/app/config:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 50052)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+
+  # Dashboard UI (Next.js)
+  dashboard:
+    build:
+      context: ./dashboard_ui
+      dockerfile: Dockerfile
+    container_name: helios-dashboard
+    restart: unless-stopped
+    depends_on:
+      - kernel-daemon
+    networks:
+      - helios-network
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - HELIOS_API_URL=http://kernel-daemon:50052
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+  # Prometheus (Monitoreo)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: helios-prometheus
+    restart: unless-stopped
+    networks:
+      - helios-network
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # Grafana (Visualización)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: helios-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    networks:
+      - helios-network
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin123}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+
+networks:
+  helios-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  rust-data:
+    driver: local
+  daemon-data:
+    driver: local
+  daemon-logs:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
