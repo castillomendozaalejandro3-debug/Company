@@ -78,9 +78,9 @@ class LLMClient:
             memory_manager: Optional custom memory manager instance
             provider: LLM provider ('openai', 'local', 'anthropic', etc.)
         """
-        self.model = model or os.getenv("HELIOS_LLM_MODEL", self.DEFAULT_MODEL)
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.base_url = base_url or os.getenv("HELIOS_LLM_BASE_URL")
+        self.model = model or os.getenv("HELIOS_LLM_MODEL", "cognitivecomputations/dolphin-mistral-7b")
+        self.api_key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
+        self.base_url = base_url or os.getenv("OPENROUTER_BASE_URL") or os.getenv("HELIOS_LLM_BASE_URL")
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.timeout = timeout
