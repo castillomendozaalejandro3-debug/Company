@@ -10,10 +10,12 @@ import logging
 import os
 import socket
 import ssl
+import sys
 import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable, Tuple
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 import json
 
 logger = logging.getLogger(__name__)
@@ -73,13 +75,8 @@ class CertificateManager:
             .issuer_name(issuer)
             .public_key(key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(
-                x509.datetime.datetime.utcnow()
-            )
-            .not_valid_after(
-                x509.datetime.datetime.utcnow() + 
-                x509.datetime.timedelta(days=self.validity_days)
-            )
+            .not_valid_before(datetime.utcnow())
+            .not_valid_after(datetime.utcnow() + timedelta(days=self.validity_days))
             .add_extension(
                 x509.BasicConstraints(ca=True, path_length=None),
                 critical=True,
@@ -129,13 +126,8 @@ class CertificateManager:
             .issuer_name(self._ca_cert.subject)
             .public_key(key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(
-                x509.datetime.datetime.utcnow()
-            )
-            .not_valid_after(
-                x509.datetime.datetime.utcnow() + 
-                x509.datetime.timedelta(days=self.validity_days)
-            )
+            .not_valid_before(datetime.utcnow())
+            .not_valid_after(datetime.utcnow() + timedelta(days=self.validity_days))
             .add_extension(
                 x509.BasicConstraints(ca=False, path_length=None),
                 critical=True,
@@ -176,8 +168,14 @@ class MTLSIPCChannel:
         self.is_server = is_server
         self.cert_manager = cert_manager or CertificateManager()
         
+        # Detectar si estamos en Windows para usar TCP en lugar de Unix sockets
+        self.is_windows = os.name == 'nt'
+        self.tcp_host = "127.0.0.1"
+        self.tcp_port = 50421  # Puerto default para Helios IPC
+        
         self._socket: Optional[socket.socket] = None
         self._ssl_socket: Optional[ssl.SSLSocket] = None
+        self._server_socket: Optional[socket.socket] = None
         self._running = False
         self._message_handlers: Dict[str, Callable] = {}
         self._ca_cert_pem: Optional[bytes] = None
@@ -250,32 +248,49 @@ class MTLSIPCChannel:
         if self.is_server:
             await self.initialize()
         
-        socket_dir = self.socket_path.parent
-        socket_dir.mkdir(parents=True, exist_ok=True)
+        if self.is_windows:
+            # Windows: usar TCP socket en lugar de Unix Domain Socket
+            self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._server_socket.bind((self.tcp_host, self.tcp_port))
+            self._server_socket.listen(5)
+            self._server_socket.setblocking(False)
+            logger.info(f"Servidor IPC TCP iniciado en {self.tcp_host}:{self.tcp_port}")
+        else:
+            # Unix/Linux/macOS: usar Unix Domain Socket
+            socket_dir = self.socket_path.parent
+            socket_dir.mkdir(parents=True, exist_ok=True)
+            
+            if self.socket_path.exists():
+                self.socket_path.unlink()
+            
+            self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._socket.bind(str(self.socket_path))
+            
+            os.chmod(self.socket_path, 0o600)
+            logger.info(f"Socket IPC creado: {self.socket_path} (chmod 600)")
+            
+            self._socket.listen(5)
+            self._socket.setblocking(False)
+            logger.info(f"Servidor IPC Unix iniciado en {self.socket_path}")
         
-        if self.socket_path.exists():
-            self.socket_path.unlink()
-        
-        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._socket.bind(str(self.socket_path))
-        
-        os.chmod(self.socket_path, 0o600)
-        logger.info(f"Socket IPC creado: {self.socket_path} (chmod 600)")
-        
-        self._socket.listen(5)
-        self._socket.setblocking(False)
         self._running = True
-        
-        logger.info(f"Servidor IPC iniciado en {self.socket_path}")
     
     async def accept_connection(self) -> 'MTLSIPCChannel':
         """Acepta conexión de un Worker."""
-        if not self._socket:
-            raise RuntimeError("Server not started")
-        
-        loop = asyncio.get_event_loop()
-        client_socket, _ = await loop.sock_accept(self._socket)
+        if self.is_windows:
+            if not self._server_socket:
+                raise RuntimeError("Server socket not started")
+            
+            loop = asyncio.get_event_loop()
+            client_socket, _ = await loop.sock_accept(self._server_socket)
+        else:
+            if not self._socket:
+                raise RuntimeError("Server not started")
+            
+            loop = asyncio.get_event_loop()
+            client_socket, _ = await loop.sock_accept(self._socket)
         
         client_channel = MTLSIPCChannel(
             socket_path=str(self.socket_path),
@@ -301,17 +316,32 @@ class MTLSIPCChannel:
         if not self.is_server:
             await self.initialize()
         
-        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        
         max_retries = 10
-        for attempt in range(max_retries):
-            try:
-                self._socket.connect(str(self.socket_path))
-                break
-            except FileNotFoundError:
-                if attempt == max_retries - 1:
-                    raise
-                await asyncio.sleep(0.1 * (attempt + 1))
+        
+        if self.is_windows:
+            # Windows: conectar via TCP
+            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            
+            for attempt in range(max_retries):
+                try:
+                    self._socket.connect((self.tcp_host, self.tcp_port))
+                    break
+                except ConnectionRefusedError:
+                    if attempt == max_retries - 1:
+                        raise
+                    await asyncio.sleep(0.1 * (attempt + 1))
+        else:
+            # Unix/Linux/macOS: conectar via Unix Domain Socket
+            self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            
+            for attempt in range(max_retries):
+                try:
+                    self._socket.connect(str(self.socket_path))
+                    break
+                except FileNotFoundError:
+                    if attempt == max_retries - 1:
+                        raise
+                    await asyncio.sleep(0.1 * (attempt + 1))
         
         if CRYPTO_AVAILABLE and self._ca_cert_pem:
             ssl_ctx = self._create_ssl_context()
@@ -414,9 +444,15 @@ class MTLSIPCChannel:
             except Exception:
                 pass
         
-        if self.is_server and self.socket_path.exists():
+        if self.is_server and not self.is_windows and self.socket_path.exists():
             try:
                 self.socket_path.unlink()
+            except Exception:
+                pass
+        
+        if self.is_server and self._server_socket:
+            try:
+                self._server_socket.close()
             except Exception:
                 pass
         
@@ -535,6 +571,7 @@ class IPCKernelDaemon:
 def get_default_socket_path() -> str:
     """Obtiene ruta de socket por defecto según OS."""
     if os.name == 'nt':
-        return r"\\.\pipe\helios_kernel"
+        # Windows usa TCP, no named pipes en esta implementación
+        return "tcp://127.0.0.1:50421"
     else:
         return "/tmp/helios_kernel.sock"
