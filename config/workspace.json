@@ -1,0 +1,68 @@
+{
+  "workspace_name": "helios-production",
+  "version": "1.0.0",
+  "environment": "production",
+  
+  "paths": {
+    "data_dir": "/var/helios/data",
+    "logs_dir": "/var/helios/logs",
+    "temp_dir": "/tmp/helios",
+    "config_dir": "/etc/helios",
+    "backup_dir": "/var/helios/backups"
+  },
+  
+  "kernel": {
+    "host": "0.0.0.0",
+    "port": 50051,
+    "max_workers": 100,
+    "worker_timeout_seconds": 300,
+    "health_check_interval_seconds": 10
+  },
+  
+  "security": {
+    "enable_mtls": true,
+    "certificate_validity_days": 365,
+    "worker_certificate_validity_days": 30,
+    "enable_audit_logging": true,
+    "audit_retention_days": 90
+  },
+  
+  "self_healing": {
+    "enabled": true,
+    "auto_recovery": true,
+    "max_restart_attempts": 3,
+    "escalation_threshold": 5
+  },
+  
+  "monitoring": {
+    "prometheus_enabled": true,
+    "grafana_enabled": true,
+    "metrics_port": 9090,
+    "dashboard_port": 3001
+  },
+  
+  "agents": {
+    "office_agent": {
+      "enabled": true,
+      "max_memory_mb": 512
+    },
+    "email_agent": {
+      "enabled": true,
+      "max_memory_mb": 256,
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "imap_host": "imap.gmail.com",
+      "imap_port": 993
+    }
+  },
+  
+  "logging": {
+    "level": "INFO",
+    "format": "json",
+    "output": ["file", "stdout"],
+    "rotation": {
+      "max_size_mb": 100,
+      "backup_count": 5
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "allowed_domains": [
+    "localhost",
+    "127.0.0.1",
+    "*.microsoft.com",
+    "*.office365.com",
+    "*.google.com",
+    "*.gmail.com",
+    "*.github.com",
+    "*.azure.com",
+    "*.aws.amazon.com"
+  ],
+  
+  "blocked_patterns": [
+    "malware",
+    "exploit",
+    "ransomware",
+    "trojan",
+    "backdoor",
+    "<script[^>]*>",
+    "javascript:",
+    "data:text/html"
+  ],
+  
+  "email_patterns": [
+    "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+  ],
+  
+  "url_patterns": [
+    "^https?://[a-zA-Z0-9][-a-zA-Z0-9]*\\.[a-zA-Z]{2,}.*$"
+  ],
+  
+  "payload_rules": {
+    "max_size_bytes": 10485760,
+    "allowed_content_types": [
+      "application/json",
+      "text/plain",
+      "application/xml",
+      "multipart/form-data"
+    ]
+  },
+  
+  "blocked_keywords": [
+    "DROP TABLE",
+    "DELETE FROM",
+    "UNION SELECT",
+    "__import__",
+    "eval(",
+    "exec("
+  ]
+}
