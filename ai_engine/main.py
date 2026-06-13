@@ -285,10 +285,26 @@ class KernelDaemon:
     async def _wait_for_worker_response(
         self,
         worker_id: str,
-        timeout: float = 60.0
+        timeout: float = 15.0
     ) -> Dict[str, Any]:
-        """Espera respuesta del Worker con timeout."""
+        """Espera respuesta del Worker con timeout.
+        
+        En modo simulado (sin IPC), retorna respuesta inmediata (<1s).
+        En modo normal, espera hasta timeout (default 15s).
+        """
         start = time.time()
+        
+        # Verificación inmediata para modo simulado
+        if worker_id in self._workers:
+            worker_info = self._workers[worker_id]
+            if worker_info.get("status") == "simulated":
+                logger.info(f"Worker {worker_id} en modo simulado, respuesta inmediata")
+                self._workers[worker_id]["status"] = "completed"
+                self._workers[worker_id]["result"] = {
+                    "message": f"Simulated {worker_info['type']} response",
+                    "data": {"worker_type": worker_info["type"], "mode": "degraded"}
+                }
+                return self._workers[worker_id]["result"]
         
         while time.time() - start < timeout:
             if worker_id not in self._workers:
@@ -304,17 +320,18 @@ class KernelDaemon:
                 return worker_info.get("result", {"message": "Done"})
             
             if worker_info.get("status") == "simulated":
+                logger.info(f"Worker {worker_id} en modo simulado, respuesta inmediata")
                 await asyncio.sleep(0.1)
                 self._workers[worker_id]["status"] = "completed"
                 self._workers[worker_id]["result"] = {
                     "message": f"Simulated {worker_info['type']} response",
-                    "data": {"worker_type": worker_info["type"]}
+                    "data": {"worker_type": worker_info["type"], "mode": "degraded"}
                 }
                 return self._workers[worker_id]["result"]
             
             await asyncio.sleep(0.1)
         
-        raise asyncio.TimeoutError(f"Worker {worker_id} timeout")
+        raise asyncio.TimeoutError(f"Worker {worker_id} timeout after {timeout}s")
     
     def get_status(self) -> Dict[str, Any]:
         """Obtiene estado del Kernel Daemon."""
