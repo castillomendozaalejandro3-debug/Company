@@ -10,6 +10,11 @@ import asyncio
 import uuid
 import time
 from typing import Optional, Dict, Any
+from dotenv import load_dotenv
+
+# Cargar variables de entorno desde .env
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
