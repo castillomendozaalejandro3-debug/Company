@@ -1,7 +1,7 @@
 use tonic::{transport::Server, Request, Response, Status};
 use tokio::net::TcpListener;
 use sysinfo::{System, SystemExt, DiskExt};
-use log::{info, warn, error};
+use log::{info, warn};
 use std::env;
 
 pub mod helios {
@@ -41,7 +41,7 @@ impl HeliosCore for HeliosCoreService {
         let mut system = System::new_all();
         system.refresh_all();
 
-        let cpu_usage = system.global_cpu_usage() as f32;
+        let cpu_usage = system.global_cpu_info().cpu_usage() as f32;
         let total_memory = system.total_memory();
         let used_memory = system.used_memory();
         let memory_usage_percent = (used_memory as f32 / total_memory as f32) * 100.0;
