@@ -49,7 +49,7 @@ class LLMClient:
     """
     
     # Default configuration
-    DEFAULT_MODEL = "gpt-4"
+    DEFAULT_MODEL = os.getenv("HELIOS_MODEL", "openai/gpt-3.5-turbo")
     DEFAULT_MAX_TOKENS = 2048
     DEFAULT_TEMPERATURE = 0.7
     DEFAULT_TIMEOUT = 30.0
@@ -78,7 +78,7 @@ class LLMClient:
             memory_manager: Optional custom memory manager instance
             provider: LLM provider ('openai', 'local', 'anthropic', etc.)
         """
-        self.model = model or os.getenv("HELIOS_LLM_MODEL", "cognitivecomputations/dolphin-mistral-7b")
+        self.model = model or os.getenv("HELIOS_MODEL", "openai/gpt-3.5-turbo")
         self.api_key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("OPENAI_API_KEY")
         self.base_url = base_url or os.getenv("OPENROUTER_BASE_URL") or os.getenv("HELIOS_LLM_BASE_URL")
         self.max_tokens = max_tokens
