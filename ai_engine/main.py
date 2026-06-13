@@ -31,6 +31,7 @@ try:
         IPCMessage,
         get_default_socket_path
     )
+    from ai_engine.core.llm_client import LLMClient
     KERNEL_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"Módulos del Kernel no disponibles: {e}")
@@ -79,6 +80,7 @@ class KernelDaemon:
     def __init__(self):
         self.ipc_daemon: Optional[IPCKernelDaemon] = None
         self.idle_monitor: Optional[IdleTimeMonitor] = None
+        self.llm_client: Optional[LLMClient] = None
         self._workers: Dict[str, Dict[str, Any]] = {}
         self._running = False
         self._socket_path = get_default_socket_path()
@@ -90,6 +92,10 @@ class KernelDaemon:
             return
         
         try:
+            # Inicializar LLM Client primero (fallback principal)
+            self.llm_client = LLMClient()
+            logger.info("LLM Client inicializado")
+            
             self.idle_monitor = init_idle_monitor(
                 idle_threshold=5.0,
                 interrupt_on_human=True
@@ -104,6 +110,12 @@ class KernelDaemon:
             self._running = True
         except Exception as e:
             logger.error(f"Error iniciando Kernel Daemon: {e}")
+            # Inicializar LLM aunque IPC falle
+            try:
+                self.llm_client = LLMClient()
+                logger.info("LLM Client inicializado (IPC no disponible)")
+            except Exception as llm_error:
+                logger.error(f"Error inicializando LLM Client: {llm_error}")
             raise
     
     async def stop(self) -> None:
@@ -237,7 +249,8 @@ class KernelDaemon:
             self._workers[worker_id] = {
                 "type": worker_type,
                 "status": "simulated",
-                "start_time": time.time()
+                "start_time": time.time(),
+                "original_request": payload.get("request", "")  # Guardar request original para LLM
             }
             return worker_id
         
@@ -289,22 +302,56 @@ class KernelDaemon:
     ) -> Dict[str, Any]:
         """Espera respuesta del Worker con timeout.
         
-        En modo simulado (sin IPC), retorna respuesta inmediata (<1s).
-        En modo normal, espera hasta timeout (default 15s).
+        Si IPC no está disponible, usa el LLM real como fallback principal.
+        NO devuelve respuestas simuladas.
         """
         start = time.time()
         
-        # Verificación inmediata para modo simulado
+        # Verificar si el worker está en modo simulado (IPC no disponible)
         if worker_id in self._workers:
             worker_info = self._workers[worker_id]
             if worker_info.get("status") == "simulated":
-                logger.info(f"Worker {worker_id} en modo simulado, respuesta inmediata")
-                self._workers[worker_id]["status"] = "completed"
-                self._workers[worker_id]["result"] = {
-                    "message": f"Simulated {worker_info['type']} response",
-                    "data": {"worker_type": worker_info["type"], "mode": "degraded"}
-                }
-                return self._workers[worker_id]["result"]
+                logger.info(f"Worker {worker_id} en modo simulado, usando LLM real como fallback")
+                
+                # Usar LLM real para procesar el request original
+                if self.llm_client:
+                    try:
+                        original_request = worker_info.get("original_request", "")
+                        logger.info(f"Procesando con LLM real: {original_request[:50]}...")
+                        
+                        llm_response = await self.llm_client.chat(
+                            message=original_request,
+                            system_prompt="Sos un asistente de IA útil y preciso. Respondé de forma clara y concisa."
+                        )
+                        
+                        self._workers[worker_id]["status"] = "completed"
+                        self._workers[worker_id]["result"] = {
+                            "message": "Respuesta generada por LLM real",
+                            "data": {
+                                "response": llm_response.get("content", "No response"),
+                                "model": llm_response.get("model", "unknown"),
+                                "tokens_used": llm_response.get("usage", {})
+                            },
+                            "source": "llm_fallback"
+                        }
+                        return self._workers[worker_id]["result"]
+                        
+                    except Exception as llm_error:
+                        logger.error(f"Error en LLM fallback: {llm_error}")
+                        self._workers[worker_id]["status"] = "error"
+                        return {
+                            "message": "Error procesando request con LLM",
+                            "error": str(llm_error),
+                            "source": "llm_error"
+                        }
+                else:
+                    logger.error(f"No hay LLM Client disponible para fallback")
+                    self._workers[worker_id]["status"] = "error"
+                    return {
+                        "message": "LLM no disponible",
+                        "error": "No se pudo procesar el request - LLM no inicializado",
+                        "source": "llm_unavailable"
+                    }
         
         while time.time() - start < timeout:
             if worker_id not in self._workers:
@@ -319,15 +366,8 @@ class KernelDaemon:
             if worker_info.get("status") == "completed":
                 return worker_info.get("result", {"message": "Done"})
             
-            if worker_info.get("status") == "simulated":
-                logger.info(f"Worker {worker_id} en modo simulado, respuesta inmediata")
-                await asyncio.sleep(0.1)
-                self._workers[worker_id]["status"] = "completed"
-                self._workers[worker_id]["result"] = {
-                    "message": f"Simulated {worker_info['type']} response",
-                    "data": {"worker_type": worker_info["type"], "mode": "degraded"}
-                }
-                return self._workers[worker_id]["result"]
+            if worker_info.get("status") == "error":
+                raise RuntimeError(f"Worker {worker_id} encountered an error")
             
             await asyncio.sleep(0.1)
         
@@ -484,6 +524,80 @@ async def kernel_status():
         raise HTTPException(status_code=503, detail="Kernel Daemon no inicializado")
     
     return kernel_daemon.get_status()
+
+
+@app.get("/api/v1/test-llm")
+async def test_llm():
+    """
+    Endpoint de diagnóstico para verificar el LLM Client.
+    
+    Retorna:
+    - status: "ok" o "error"
+    - model: nombre del modelo configurado
+    - response: respuesta del LLM (o error)
+    - duration_ms: tiempo de respuesta en milisegundos
+    """
+    if not kernel_daemon or not kernel_daemon.llm_client:
+        return {
+            "status": "error",
+            "model": None,
+            "response": "LLM Client no inicializado",
+            "duration_ms": 0,
+            "error": "Kernel Daemon o LLM Client no disponibles"
+        }
+    
+    start_time = time.time()
+    
+    try:
+        llm_client = kernel_daemon.llm_client
+        
+        # Verificar configuración
+        if not llm_client.api_key:
+            return {
+                "status": "error",
+                "model": llm_client.model,
+                "response": "API key no configurada",
+                "duration_ms": int((time.time() - start_time) * 1000),
+                "error": "Set OPENROUTER_API_KEY environment variable"
+            }
+        
+        # Hacer llamada rápida al LLM (timeout 10s)
+        response = await asyncio.wait_for(
+            llm_client.chat(
+                message="Respondé solo con 'OK' si estás funcionando correctamente.",
+                system_prompt="Sos un asistente de diagnóstico. Respondé mínimamente."
+            ),
+            timeout=10.0
+        )
+        
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        return {
+            "status": "ok",
+            "model": llm_client.model,
+            "response": response.get("content", "No response"),
+            "duration_ms": duration_ms,
+            "usage": response.get("usage", {}),
+            "provider": llm_client.provider
+        }
+        
+    except asyncio.TimeoutError:
+        return {
+            "status": "error",
+            "model": kernel_daemon.llm_client.model if kernel_daemon.llm_client else None,
+            "response": "Timeout después de 10 segundos",
+            "duration_ms": int((time.time() - start_time) * 1000),
+            "error": "LLM no respondió en el tiempo esperado"
+        }
+    except Exception as e:
+        logger.error(f"Error en test-llm: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "model": kernel_daemon.llm_client.model if kernel_daemon.llm_client else None,
+            "response": str(e),
+            "duration_ms": int((time.time() - start_time) * 1000),
+            "error": str(e)
+        }
 
 
 @app.get("/api/v1/logs")
