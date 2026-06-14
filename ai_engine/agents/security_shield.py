@@ -660,9 +660,9 @@ class SecurityShieldAgent(BaseAgent):
                         "pattern": self.PROMPT_INJECTION_PATTERNS[i],
                         "match": True
                     })
-            except Exception:
+            except Exception as e:
                 # Fallback to simple string matching
-                pass
+                logger.debug(f"Regex pattern {i} failed, using fallback: {str(e)}")
         
         # Also check simple string patterns
         simple_patterns = [
@@ -747,10 +747,10 @@ class SecurityShieldAgent(BaseAgent):
                                     "line_count": len(matches),
                                     "severity": "HIGH" if "aws" in vuln_type or "github" in vuln_type else "MEDIUM"
                                 })
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                        except Exception as e:
+                            logger.debug(f"Error scanning file {file_path} for pattern {pattern}: {str(e)}")
+                except Exception as e:
+                    logger.warning(f"Error reading file {file_path} during credential audit: {str(e)}")
         
         # Generate recommendations
         if any(v["type"] == "plaintext_password" for v in vulnerabilities):
@@ -991,8 +991,8 @@ class SecurityShieldAgent(BaseAgent):
                             "relative_path": str(file_path.relative_to(path.parent)) if path.is_dir() else str(file_path.name)
                         }
                         files_hashed += 1
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning(f"Error hashing file {file_path}: {str(e)}")
         
         snapshot_record = {
             "snapshot_id": snapshot_id,
